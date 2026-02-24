@@ -1,0 +1,424 @@
+﻿@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrackIT by Furdeco — TEST VERSION</title>
+</head>
+<body>
+<script>
+/* ================================================================
+   TrackIT — TEST VERSION
+   ⚠️ FOR TESTING ONLY — DO NOT USE IN PRODUCTION
+   API key is visible here. Use proxy version for production.
+   ================================================================
+
+   HOW TO TEST:
+   1. Fill in your Multidrop details in CONFIG below
+   2. Set DEMO_MODE = false
+   3. Open this file in a browser
+   4. The chatbot will call Multidrop directly
+
+   ================================================================ */
+
+const CONFIG = {
+  DEMO_MODE: false,                          // ← Set false to test live API
+
+  // // ── MULTIDROP DETAILS (get from your account manager) ──────────
+  // CUSTOMER_URL: 'https://furdeco.gsit.co.uk',    // ← e.g. https://furdeco.gsit.co.uk
+  // API_KEY:      'C0004AB77VQ90DB29W287C98S5DT73R27B703P4K0O14278QAS',         // ← e.g. 02494PYFB8OAC2XDL32O2T775X5
+
+  // ── SUPPORT DETAILS ────────────────────────────────────────────
+  SUPPORT_PHONE: '0800 123 4567',
+  SUPPORT_EMAIL: 'info@furdeco.co.uk',
+  SUPPORT_HOURS: 'Mon–Sat, 8am–8pm',
+};
+
+/* ================================================================
+   DEMO DATA — only used when DEMO_MODE = true
+   Test consignment + postcode combinations:
+   MD-DEMO-001 + DL1 1GL  (Scheduled, verify: 07700900000 or john@example.com)
+   MD-DEMO-002 + SR6 8LE  (In Warehouse)
+   MD-DEMO-003 + PH2 8DD  (Out for Delivery)
+   ================================================================ */
+const DEMO_DB = {
+  'MD-DEMO-001|DL1 1GL': {
+    carrier_reference:'MD-DEMO-001', order_number:'ORD-10001',
+    recipient:'John Smith', sender_company:'SofaWorld UK',
+    address:'14 Oak Avenue, Darlington', postcode:'DL1 1GL',
+    contact_mobile:'07700900000', contact_home:'N/A', email:'john@example.com',
+    planned_date:'2025/02/20', planned_slot:{start:'09:00',end:'13:00'},
+    confirmed:'False', delivery_instructions:'N/A',
+    order_steps:{released:'Yes',received:'Yes',scheduled:'Yes',routed:'No',confirmed:'No',delivered:'No'},
+    order_options:{allow_cancel_request:'True',allow_service_request:'True'},
+    products:[{description:'3-Seater Corner Sofa',part:'1 of 2'},{description:'3-Seater Corner Sofa',part:'2 of 2'}],
+    services:{service_level:'2 Man',delivery_point:'Room Of Choice'},
+  },
+  'MD-DEMO-002|SR6 8LE': {
+    carrier_reference:'MD-DEMO-002', order_number:'ORD-10002',
+    recipient:'Sarah Jones', sender_company:'Oak & Stone Furniture',
+    address:'7 Maple Road, Sunderland', postcode:'SR6 8LE',
+    contact_mobile:'07700900001', contact_home:'N/A', email:'sarah@example.com',
+    planned_date:'2025/02/22', planned_slot:{start:'14:00',end:'18:00'},
+    confirmed:'False', delivery_instructions:'N/A',
+    order_steps:{released:'Yes',received:'Yes',scheduled:'No',routed:'No',confirmed:'No',delivered:'No'},
+    order_options:{allow_cancel_request:'True',allow_service_request:'True'},
+    products:[{description:'Solid Oak Dining Table Set',part:'1 of 3'}],
+    services:{service_level:'2 Man',delivery_point:'Room Of Choice'},
+  },
+  'MD-DEMO-003|PH2 8DD': {
+    carrier_reference:'MD-DEMO-003', order_number:'ORD-10003',
+    recipient:'Mike Taylor', sender_company:'Dreams Ltd',
+    address:'3 River Lane, Perth', postcode:'PH2 8DD',
+    contact_mobile:'07700900002', contact_home:'N/A', email:'mike@example.com',
+    planned_date:'2025/02/19', planned_slot:{start:'10:00',end:'14:00'},
+    confirmed:'True', delivery_instructions:'N/A',
+    order_steps:{released:'Yes',received:'Yes',scheduled:'Yes',routed:'Yes',confirmed:'Yes',delivered:'No'},
+    order_options:{allow_cancel_request:'False',allow_service_request:'True'},
+    products:[{description:'King Size Bed Frame',part:'1 of 2'},{description:'King Size Bed Frame',part:'2 of 2'}],
+    services:{service_level:'2 Man',delivery_point:'Room Of Choice'},
+  },
+};
+
+/* ================================================================
+   API LAYER
+   In test mode, calls Multidrop directly using CUSTOMER_URL + API_KEY
+   NOTE: This will only work if your IP is whitelisted by Multidrop,
+   OR if you are testing from a whitelisted office/VPN connection.
+   ================================================================ */
+class Err extends Error{constructor(c,m){super(m);this.code=c;}}
+
+const API = {
+
+  // GET order tracking data
+  // Multidrop endpoint: GET https://furdeco.gsit.co.uk/_portal/api/_tracking/?key={API_KEY}&carrier_reference={consignment}
+  async getOrder(ref, pc) {
+    if (CONFIG.DEMO_MODE) {
+      await dl(1100);
+      const k = `${ref.toUpperCase()}|${pc.toUpperCase().trim()}`;
+      const o = DEMO_DB[k];
+      if (!o) throw new Err('NOT_FOUND', `No order found for <strong>${xe(ref)}</strong> at <strong>${xe(pc)}</strong>.`);
+      return JSON.parse(JSON.stringify(o));
+    }
+    // LIVE — calls Multidrop directly with just carrier_reference (postcode not needed in URL)
+   // const url = `${CONFIG.CUSTOMER_URL}/_portal/api/_tracking/?key=${CONFIG.API_KEY}&carrier_reference=${encodeURIComponent(ref)}&postcode=${encodeURIComponent(pc)}`;
+    //const r = await tf(url);
+    const url = `/api/chat/track?reference=${encodeURIComponent(ref)}&postcode=${encodeURIComponent(pc)}`;
+ const r = await tf(url);
+    return pTrk(await r.text());
+  },
+
+  // POST confirm delivery
+  // Multidrop endpoint: POST https://furdeco.gsit.co.uk/_portal/api/_orders/update/?key={API_KEY}&carrier_reference=&action=confirm
+  async confirmOrder(ref) {
+    if (CONFIG.DEMO_MODE) { await dl(900); return { success: 'ok' }; }
+    return mdPost(ref, 'confirm');
+  },
+
+  // POST decline delivery
+  // Multidrop endpoint: POST https://furdeco.gsit.co.uk/_portal/api/_orders/update/?key={API_KEY}&carrier_reference=&action=decline
+  async declineOrder(ref) {
+    if (CONFIG.DEMO_MODE) { await dl(900); return { success: 'ok' }; }
+    return mdPost(ref, 'decline');
+  },
+
+  // POST update delivery instructions
+  // Multidrop endpoint: POST https://furdeco.gsit.co.uk/_portal/api/_orders/update/?key={API_KEY}&carrier_reference=&action=update_field
+  async updateInstructions(ref, txt) {
+    if (CONFIG.DEMO_MODE) { await dl(800); return { success: 'ok' }; }
+    return mdPost(ref, 'update_field', { OtherInstructions: txt });
+  },
+
+  // POST add audit note
+  // Multidrop endpoint: POST https://furdeco.gsit.co.uk/_portal/api/_orders/update/?key={API_KEY}&carrier_reference=&action=add_note
+  async addNote(ref, note) {
+    if (CONFIG.DEMO_MODE) { await dl(400); return { success: 'ok' }; }
+    return mdPost(ref, 'add_note', { Note: note });
+  },
+};
+
+// // Builds and sends POST request directly to Multidrop
+// async function mdPost(ref, action, extraFields = {}) {
+//   const url = `${CONFIG.CUSTOMER_URL}/_portal/api/_orders/update/?key=${CONFIG.API_KEY}&carrier_reference=${encodeURIComponent(ref)}&action=${action}`;
+//   const body = new URLSearchParams(extraFields).toString();
+//   const r = await tf(url, {
+//     method: 'POST',
+//     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+//     body: body,
+//   });
+//   return pAct(await r.text());
+// }
+        async function mdPost(ref, action, extraFields = {}) {
+
+          const endpointMap = {
+            confirm: '/api/chat/confirm',
+            decline: '/api/chat/decline',
+            update_field: '/api/chat/instructions',
+            add_note: '/api/chat/note'
+          };
+
+          const formData = new URLSearchParams();
+          formData.append("reference", ref);
+
+          if (action === "update_field")
+              formData.append("instructions", extraFields.OtherInstructions);
+
+          if (action === "add_note")
+              formData.append("note", extraFields.Note);
+
+          const r = await tf(endpointMap[action], {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formData
+          });
+
+          return pAct(await r.text());
+        }
+
+async function tf(url, opts={}, ms=12000) {
+  const c = new AbortController();
+  const id = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { ...opts, signal: c.signal });
+    clearTimeout(id);
+    if (!r.ok) throw new Err('HTTP', `Error ${r.status}`);
+    return r;
+  } catch(e) {
+    clearTimeout(id);
+    if (e.name === 'AbortError') throw new Err('TIMEOUT', 'Request timed out.');
+    throw e;
+  }
+}
+
+function pTrk(xml) {
+  const d = new DOMParser().parseFromString(xml, 'text/xml');
+  const g = t => d.querySelector(t)?.textContent?.trim() || 'N/A';
+  const gi = (p,t) => d.querySelector(`${p} > ${t}`)?.textContent?.trim() || 'N/A';
+  if (d.querySelector('error')) throw new Err('API', g('error'));
+  return {
+    carrier_reference: g('carrier_reference'), order_number: g('order_number'),
+    recipient: g('recipient'), sender_company: g('sender_company'),
+    address: g('address'), postcode: g('postcode'),
+    contact_mobile: g('contact_mobile'), contact_home: g('contact_home'), email: g('email'),
+    planned_date: g('planned_date'),
+    planned_slot: { start: gi('planned_slot','start'), end: gi('planned_slot','end') },
+    confirmed: g('confirmed'), delivery_instructions: g('delivery_instructions'),
+    order_steps: {
+      released: gi('order_steps','released'), received: gi('order_steps','received'),
+      scheduled: gi('order_steps','scheduled'), routed: gi('order_steps','routed'),
+      confirmed: gi('order_steps','confirmed'), delivered: gi('order_steps','delivered'),
+    },
+    order_options: {
+      allow_cancel_request: gi('order_options','allow_cancel_request'),
+      allow_service_request: gi('order_options','allow_service_request'),
+    },
+    products: [...d.querySelectorAll('products > delivery > product')].map(p => ({
+      description: p.querySelector('description')?.textContent?.trim() || '',
+      part: p.querySelector('part')?.textContent?.trim() || '',
+    })),
+    services: {
+      service_level: gi('services','service_level'),
+      delivery_point: gi('services','delivery_point'),
+    },
+  };
+}
+
+function pAct(xml) {
+  const d = new DOMParser().parseFromString(xml, 'text/xml');
+  const e = d.querySelector('error')?.textContent?.trim();
+  if (e) throw new Err('API', e);
+  return { success: d.querySelector('success')?.textContent?.trim() };
+}
+
+/* HELPERS */
+function verifyIdentity(v,o){const n=s=>(s||'').toLowerCase().replace(/[\s\-().+]/g,'');const i=n(v);if(!i)return false;const m=n(o.contact_mobile),h=n(o.contact_home),e=n(o.email);return(m&&m!=='n/a'&&i===m)||(h&&h!=='n/a'&&i===h)||(e&&e!=='n/a'&&i===e);}
+function deriveStatus(s){if(s.delivered==='Yes')return{label:'Delivered',key:'bd'};if(s.routed==='Yes')return{label:'Out for Delivery',key:'bo'};if(s.scheduled==='Yes')return{label:'Scheduled',key:'bs'};if(s.received==='Yes')return{label:'In Warehouse',key:'bw'};return{label:'Order Created',key:'bw'};}
+function fmtDate(s){if(!s||s==='N/A')return'TBC';try{return new Date(s.replace(/\//g,'-')).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});}catch{return s;}}
+function fmtSlot(sl){if(!sl||sl.start==='TBC'||sl.start==='N/A')return'To be confirmed';return`${sl.start} – ${sl.end}`;}
+function dl(ms){return new Promise(r=>setTimeout(r,ms));}
+function xe(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* STYLES */
+const s=document.createElement('style');
+s.textContent=`
+@@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+#tt-bubble{position:fixed;bottom:28px;right:28px;z-index:999999;font-family:'DM Sans',sans-serif}
+#tt-toggle{width:68px;height:68px;background:#3AB54A;border-radius:50%;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 8px 28px rgba(58,181,74,.5);transition:all .25s;position:relative;animation:ttPop .6s ease both 1.5s}
+@@keyframes ttPop{from{transform:scale(0);opacity:0}60%{transform:scale(1.1)}to{transform:scale(1);opacity:1}}
+#tt-toggle:hover{transform:scale(1.08)}
+#tt-toggle svg{color:white}
+.tt-lbl{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;color:white;letter-spacing:.5px}
+.tt-dot{position:absolute;top:6px;right:6px;width:14px;height:14px;background:#ff3b30;border-radius:50%;border:2px solid white;font-size:8px;color:white;display:flex;align-items:center;justify-content:center;font-weight:700}
+#tt-win{position:absolute;bottom:84px;right:0;width:400px;height:630px;background:white;border-radius:20px;box-shadow:0 20px 64px rgba(0,0,0,.22);display:flex;flex-direction:column;overflow:hidden;transform-origin:bottom right;transition:all .35s cubic-bezier(.34,1.56,.64,1);transform:scale(0) translateY(20px);opacity:0;pointer-events:none}
+#tt-win.open{transform:scale(1) translateY(0);opacity:1;pointer-events:all}
+.tt-hdr{background:linear-gradient(135deg,#2a8f38,#3AB54A);padding:16px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
+.tt-av{width:42px;height:42px;background:rgba(255,255,255,.2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.tt-hi{flex:1}
+.tt-hn{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:white;line-height:1.2}
+.tt-hs{font-size:11px;color:rgba(255,255,255,.75);display:flex;align-items:center;gap:5px}
+.tt-hs::before{content:'';width:7px;height:7px;background:#7fff7f;border-radius:50%;display:inline-block;animation:ttp 2s infinite}
+@@keyframes ttp{0%,100%{opacity:1}50%{opacity:.3}}
+.tt-cls{background:rgba(255,255,255,.15);border:none;cursor:pointer;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:17px}
+.tt-cls:hover{background:rgba(255,255,255,.28)}
+.tt-chip{font-size:10px;font-weight:700;padding:2px 7px;border-radius:100px;margin-left:5px;background:rgba(217,119,6,.9);color:white}
+.tt-chip.live{background:rgba(255,255,255,.2)}
+.tt-crumb{padding:7px 16px;background:#f8f8fa;border-bottom:1px solid #e5e5ea;font-size:11px;color:#8e8e93;display:flex;align-items:center;gap:5px;flex-shrink:0}
+.tt-crumb .ac{color:#3AB54A;font-weight:600}
+#tt-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;scroll-behavior:smooth}
+#tt-msgs::-webkit-scrollbar{width:4px}
+#tt-msgs::-webkit-scrollbar-thumb{background:#e5e5ea;border-radius:2px}
+.tt-row{display:flex;animation:ttIn .26s ease both}
+@@keyframes ttIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.tt-row.u{justify-content:flex-end}
+.tt-bbl{max-width:85%;padding:10px 14px;border-radius:16px;font-size:13.5px;line-height:1.55;word-break:break-word}
+.tt-row.u .tt-bbl{background:#3AB54A;color:white;border-bottom-right-radius:4px}
+.tt-row.b .tt-bbl{background:#f0f0f5;color:#1c1c1e;border-bottom-left-radius:4px}
+.tt-typ{display:flex;align-items:center;gap:5px;padding:11px 14px;background:#f0f0f5;border-radius:16px;border-bottom-left-radius:4px;width:fit-content}
+.tt-td{width:7px;height:7px;background:#8e8e93;border-radius:50%;animation:ttb 1.2s infinite}
+.tt-td:nth-child(2){animation-delay:.2s}.tt-td:nth-child(3){animation-delay:.4s}
+@@keyframes ttb{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
+.tt-ldr{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f0f0f5;border-radius:16px;border-bottom-left-radius:4px;font-size:13px;color:#8e8e93;width:fit-content}
+.tt-spn{width:16px;height:16px;border:2px solid #e5e5ea;border-top-color:#3AB54A;border-radius:50%;animation:tts .7s linear infinite;flex-shrink:0}
+@@keyframes tts{to{transform:rotate(360deg)}}
+.tt-card{background:white;border:1px solid #e5e5ea;border-radius:12px;padding:14px;font-size:13px}
+.tt-ct{font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:#1c1c1e;margin-bottom:10px}
+.tt-dr{display:flex;justify-content:space-between;padding:3px 0}
+.tt-dk{color:#8e8e93;font-size:12px;flex-shrink:0}
+.tt-dv{color:#1c1c1e;font-weight:500;font-size:12px;text-align:right;max-width:200px}
+.tt-sb{display:inline-block;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:600;margin:7px 0 4px}
+.bs{background:#fff3cd;color:#856404}.bw{background:#d1ecf1;color:#0c5460}.bo{background:#d4edda;color:#155724}.bd{background:#e8f7ea;color:#2a8f38}
+.tt-trk{display:flex;align-items:flex-start;margin-top:10px}
+.tt-ts{display:flex;flex-direction:column;align-items:center;flex:1;position:relative}
+.tt-ts:not(:last-child)::after{content:'';position:absolute;top:10px;left:50%;right:-50%;height:2px;background:#e5e5ea;z-index:0}
+.tt-ts.done:not(:last-child)::after,.tt-ts.cur:not(:last-child)::after{background:#3AB54A}
+.tt-tdot{width:20px;height:20px;border-radius:50%;background:#e5e5ea;border:2px solid #e5e5ea;display:flex;align-items:center;justify-content:center;font-size:8px;color:#8e8e93;position:relative;z-index:1;margin-bottom:4px;font-weight:700}
+.tt-ts.done .tt-tdot{background:#3AB54A;border-color:#3AB54A;color:white}
+.tt-ts.cur .tt-tdot{background:white;border-color:#3AB54A;color:#3AB54A;box-shadow:0 0 0 3px rgba(58,181,74,.15)}
+.tt-tlbl{font-size:8.5px;color:#48484a;text-align:center;line-height:1.3}
+.tt-ts.done .tt-tlbl,.tt-ts.cur .tt-tlbl{color:#3AB54A;font-weight:600}
+.tt-info{background:#e8f7ea;border:1px solid rgba(58,181,74,.3);border-radius:10px;padding:11px 14px;font-size:12.5px;color:#1c5a28;line-height:1.5;margin:3px 0}
+.tt-warn{background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:11px 14px;font-size:12.5px;color:#5a3a00;line-height:1.5;margin:3px 0}
+.tt-err{background:#fdecea;border:1px solid #f5c6cb;border-radius:10px;padding:11px 14px;font-size:12.5px;color:#7d1f1f;line-height:1.5;margin:3px 0}
+.tt-qrs{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px;animation:ttIn .26s ease both .1s;opacity:0;animation-fill-mode:both}
+.tt-qr{padding:7px 12px;border:1.5px solid #3AB54A;background:white;color:#3AB54A;border-radius:100px;font-size:12.5px;font-weight:500;cursor:pointer;transition:all .18s;font-family:'DM Sans',sans-serif}
+.tt-qr:hover{background:#3AB54A;color:white}
+.tt-qr:disabled{opacity:.38;cursor:default;pointer-events:none}
+.tt-qr.red{border-color:#dc2626;color:#dc2626}.tt-qr.red:hover{background:#dc2626;color:white}
+.tt-qr.grey{border-color:#8e8e93;color:#8e8e93}.tt-qr.grey:hover{background:#8e8e93;color:white}
+.tt-vcard{background:white;border:1px solid #e5e5ea;border-radius:12px;padding:14px}
+.tt-vcard label{display:block;font-size:11px;font-weight:600;color:#8e8e93;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.tt-vcard input{width:100%;border:1.5px solid #e5e5ea;border-radius:8px;padding:9px 12px;font-size:13px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .2s;box-sizing:border-box}
+.tt-vcard input:focus{border-color:#3AB54A}
+.tt-vhint{font-size:11px;color:#8e8e93;margin:5px 0 10px;font-style:italic}
+.tt-vbtns{display:flex;gap:8px}
+.tt-vsub{flex:1;padding:9px;background:#3AB54A;color:white;border:none;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer}
+.tt-vsub:hover{background:#2a8f38}
+.tt-vcan{padding:9px 14px;background:white;color:#8e8e93;border:1.5px solid #e5e5ea;border-radius:8px;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif}
+.tt-sum{background:white;border:1px solid #e5e5ea;border-radius:12px;padding:14px}
+.tt-sum-t{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#3AB54A;margin-bottom:8px}
+.tt-sr{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #e5e5ea}
+.tt-sr:last-child{border-bottom:none;padding-top:7px}
+.tt-sk{color:#8e8e93;font-size:12px}.tt-sv{color:#1c1c1e;font-weight:600;font-size:12px;text-align:right;max-width:200px}
+.tt-svcs{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.tt-svc{background:#e8f7ea;color:#2a8f38;font-size:10px;font-weight:600;padding:2px 8px;border-radius:100px}
+.tt-ia{padding:10px 14px;border-top:1px solid #e5e5ea;display:flex;gap:8px;align-items:center;flex-shrink:0;background:white}
+#tt-inp{flex:1;border:1.5px solid #e5e5ea;border-radius:100px;padding:10px 16px;font-size:13.5px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .2s;background:#f5f5f7}
+#tt-inp:focus{border-color:#3AB54A;background:white}
+#tt-inp::placeholder{color:#8e8e93}
+#tt-snd{width:40px;height:40px;background:#3AB54A;border:none;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+#tt-snd:hover{background:#2a8f38;transform:scale(1.05)}
+#tt-snd svg{color:white}
+.tt-foot{text-align:center;font-size:10px;color:#8e8e93;padding:0 16px 10px;flex-shrink:0}
+@@media(max-width:480px){#tt-win{width:calc(100vw - 20px);right:-8px;height:72vh}}
+`;
+document.head.appendChild(s);
+
+/* BUILD WIDGET */
+const wrap=document.createElement('div');
+wrap.id='tt-bubble';
+wrap.innerHTML=`
+<div id="tt-win">
+  <div class="tt-hdr">
+    <div class="tt-av">🚚</div>
+    <div class="tt-hi">
+      <div class="tt-hn">TrackIT by Furdeco <span class="tt-chip" id="tt-chip">${CONFIG.DEMO_MODE?'DEMO':'TEST'}</span></div>
+      <div class="tt-hs">Online · Delivery Assistant</div>
+    </div>
+    <button class="tt-cls" id="tt-cls">✕</button>
+  </div>
+  <div class="tt-crumb" id="tt-crumb"><span class="ac">Track Order</span></div>
+  <div id="tt-msgs"></div>
+  <div class="tt-ia">
+    <input type="text" id="tt-inp" placeholder="Type a message…" autocomplete="off">
+    <button id="tt-snd"><svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+  </div>
+  <div class="tt-foot">Powered by zouma.ai · Secure &amp; Encrypted</div>
+</div>
+<button id="tt-toggle">
+  <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  <span class="tt-lbl">TrackIT</span>
+  <span class="tt-dot">1</span>
+</button>`;
+document.body.appendChild(wrap);
+
+/* STATE */
+let generatedOtp = null;
+let otpEmail = null;
+let isOpen=false,started=false,state='welcome',order=null,action=null,pRef=null,pPc=null;
+const win2=document.getElementById('tt-win'),msgs=document.getElementById('tt-msgs'),inp=document.getElementById('tt-inp'),crumb=document.getElementById('tt-crumb');
+const RE_G=/^(hi|hello|hey|hiya|howdy|good\s*(morning|afternoon|evening))[\s!?.,]*/i;
+const RE_C=/\b(cancel|exit|quit|stop|back|start over|no thanks)\b/i;
+const RE_H=/\b(human|agent|person|operator|speak to someone|real person|call me)\b/i;
+const CM={welcome:['Track Order'],lookup:['Track Order'],lookup_pc:['Track Order'],fetching:['Track Order','Looking Up…'],action:['Track Order','Choose Action'],verify:['Track Order','Verify Identity'],processing:['Track Order','Processing…'],instructions:['Track Order','Add Instructions'],done:['Track Order','Complete']};
+function setCrumb(s){const pts=CM[s]||CM.lookup;crumb.innerHTML=pts.map((p,i)=>`<span class="${i===pts.length-1?'ac':''}">${p}</span>`+(i<pts.length-1?'<span style="color:#e5e5ea;margin:0 2px">›</span>':'')).join('');}
+document.getElementById('tt-toggle').onclick=()=>isOpen?closeW():openW();
+document.getElementById('tt-cls').onclick=closeW;
+function openW(){isOpen=true;win2.classList.add('open');document.querySelector('.tt-dot').style.display='none';if(!started){started=true;setTimeout(startChat,440);}else setTimeout(()=>inp.focus(),350);}
+function closeW(){isOpen=false;win2.classList.remove('open');}
+function botMsg(html,ms=750){const tr=raw(`<div class="tt-row b"><div class="tt-typ"><div class="tt-td"></div><div class="tt-td"></div><div class="tt-td"></div></div></div>`);sd();return new Promise(r=>setTimeout(()=>{tr.remove();raw(`<div class="tt-row b"><div class="tt-bbl">${html}</div></div>`);sd();r();},ms));}
+function userMsg(t){raw(`<div class="tt-row u"><div class="tt-bbl">${xe(t)}</div></div>`);sd();}
+function ldrMsg(l='Connecting…'){const el=raw(`<div class="tt-row b"><div class="tt-ldr"><div class="tt-spn"></div>${l}</div></div>`);sd();return el;}
+function raw(html){const t=document.createElement('div');t.innerHTML=html;const el=t.firstElementChild;msgs.appendChild(el);return el;}
+function addEl(el,ms=0){return new Promise(r=>setTimeout(()=>{msgs.appendChild(el);sd();r();},ms));}
+function qrs(btns,ms=650){return new Promise(r=>setTimeout(()=>{const div=document.createElement('div');div.className='tt-qrs';btns.forEach(b=>{const btn=document.createElement('button');btn.className='tt-qr'+(b.cls?' '+b.cls:'');btn.textContent=b.label;btn.onclick=()=>{dQR();b.fn();};div.appendChild(btn);});msgs.appendChild(div);sd();r();},ms));}
+function dQR(){document.querySelectorAll('.tt-qr').forEach(b=>b.disabled=true);}
+function sd(){setTimeout(()=>msgs.scrollTop=msgs.scrollHeight,60);}
+async function startChat(){setCrumb('lookup');state='lookup';await botMsg(`Hi there! 👋 I'm <strong>TrackIT</strong>, Furdeco's delivery assistant.<br><br>I can help you <strong>track your order</strong>, confirm your delivery slot, decline it, or add delivery instructions.<br><br>Please enter your <strong>consignment number</strong> to get started.`+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo: MD-DEMO-001 + DL1 1GL</em>`:''));inp.focus();}
+function handleInput(){const val=inp.value.trim();if(!val)return;inp.value='';if(RE_H.test(val)){userMsg(val);humanHandoff();return;}if(RE_C.test(val)&&['verify','instructions'].includes(state)){userMsg(val);cancelFlow();return;}userMsg(val);if(state==='lookup')s1(val);else if(state==='lookup_pc')s2(val);else if(state==='verify')doVerify(val);else if(state==='instructions')doInstr(val);else if(RE_G.test(val))botMsg("Hello! 😊 Enter your <strong>consignment number</strong> to get started.");else botMsg("Enter your <strong>consignment number</strong> or say <em>'talk to a human'</em>.");}
+async function s1(val){if(RE_G.test(val)){await botMsg("Hello! 😊 Please enter your <strong>consignment number</strong>.");return;}pRef=val.toUpperCase().trim();state='lookup_pc';setCrumb('lookup_pc');await botMsg("Got it! And your <strong>delivery postcode</strong>?");}
+async function s2(val){pPc=val.toUpperCase().trim();await fetchOrder(pRef,pPc);}
+async function fetchOrder(ref,pc){state='fetching';setCrumb('fetching');const ldr=ldrMsg(CONFIG.DEMO_MODE?'Loading demo order…':'Calling Multidrop API…');let o;try{o=await API.getOrder(ref,pc);}catch(e){ldr.remove();await showErr(e,'lookup');return;}ldr.remove();order=o;const st=deriveStatus(o.order_steps);await botMsg(`Found it! Here's your order for <strong>${xe(o.carrier_reference)}</strong>:`,400);await addEl(buildCard(o,st),150);state='action';setCrumb('action');await botMsg("What would you like to do?",500);
+const opts=o.order_options;const isDel=o.order_steps.delivered==='Yes';const isOut=o.order_steps.routed==='Yes'&&!isDel;const isCon=o.confirmed==='True';
+if(isDel){await botMsg("✅ This order has already been <strong>delivered</strong>.",0);qrs([{label:'🔍 Track Another',fn:()=>{userMsg('Track another');resetLookup();}},{label:'👤 Talk to a Human',fn:()=>{userMsg('Talk to a human');humanHandoff();}}]);return;}
+if(isOut){const w=document.createElement('div');w.className='tt-row b';w.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-warn">⚠️ Your order is <strong>out for delivery today</strong>. Confirm/Decline is unavailable at this stage.</div></div>`;await addEl(w,300);}
+const btns=[];
+if(!isOut&&!isCon)btns.push({label:'✅ Confirm Delivery',fn:()=>pickAction('confirm')});
+if(opts.allow_cancel_request==='True'&&!isOut)btns.push({label:'❌ Decline Delivery',fn:()=>pickAction('decline'),cls:'red'});
+if(opts.allow_service_request==='True')btns.push({label:'📝 Add Instructions',fn:()=>pickAction('instructions')});
+btns.push({label:'👋 No Action Needed',fn:()=>pickAction('none'),cls:'grey'});
+btns.push({label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}});
+qrs(btns);}
+async function pickAction(a){action=a;const lbl={confirm:'Confirm Delivery',decline:'Decline Delivery',instructions:'Add Instructions',none:'No action needed'};userMsg(lbl[a]);if(a==='none'){await botMsg(`No problem! Your delivery is booked for <strong>${fmtDate(order.planned_date)}</strong>, ${fmtSlot(order.planned_slot)}. 🚚`);offerNext(600);return;}state='verify';setCrumb('verify');await botMsg("To protect your account I need to verify your identity. 🔒<br><br>Please enter the <strong>mobile number</strong> or <strong>email address</strong> linked to this order.");showVerify();}
+function showVerify(){const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-vcard"><label>Mobile or Email Address</label><input type="text" id="tt-vi" placeholder="e.g. 07700900000 or john@example.com" autocomplete="off"><p class="tt-vhint">Must match the contact details on your order.</p><div class="tt-vbtns"><button class="tt-vsub" onclick="window._ttV()">Verify →</button><button class="tt-vcan" onclick="window._ttX()">Cancel</button></div></div></div>`;msgs.appendChild(el);sd();setTimeout(()=>document.getElementById('tt-vi')?.focus(),300);}
+window._ttV=function(){const val=document.getElementById('tt-vi')?.value?.trim();if(!val)return;document.querySelectorAll('.tt-vsub,.tt-vcan,#tt-vi').forEach(e=>e.disabled=true);const masked=val.includes('@@')?val.replace(/(.{2}).*(@@.*)/,'$1••••$2'):val.replace(/(\d{5})\d+(\d{3})/,'$1•••$2');userMsg(masked);doVerify(val);};
+window._ttX=function(){document.querySelectorAll('.tt-vsub,.tt-vcan,#tt-vi').forEach(e=>e.disabled=true);userMsg('Cancel');cancelFlow();};
+async function doVerify(val){if(!verifyIdentity(val,order)){await botMsg("That doesn't match our records. ❌<br>Please check and try again.");qrs([{label:'🔄 Try Again',fn:()=>{state='verify';showVerify();}},{label:'✕ Cancel',fn:()=>{dQR();userMsg('Cancel');cancelFlow();},cls:'grey'},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],400);return;}state='processing';setCrumb('processing');await botMsg("✅ <strong>Identity verified!</strong> Processing…");setTimeout(performAction,700);}
+async function performAction(){const ref=order.carrier_reference;const ldr=ldrMsg(CONFIG.DEMO_MODE?'Updating demo…':'Sending to Multidrop…');try{if(action==='confirm'){await API.confirmOrder(ref);await API.addNote(ref,`Confirmed via TrackIT — ${new Date().toLocaleString('en-GB')}`);ldr.remove();state='done';setCrumb('done');await botMsg(`🎉 <strong>Delivery Confirmed!</strong><br><br>Your order is confirmed for <strong>${fmtDate(order.planned_date)}</strong>, ${fmtSlot(order.planned_slot)}.<br><br>We'll send a reminder the evening before.`);await addEl(buildSum('confirm',`${fmtDate(order.planned_date)}, ${fmtSlot(order.planned_slot)}`),350);}else if(action==='decline'){await API.declineOrder(ref);await API.addNote(ref,`Declined via TrackIT — ${new Date().toLocaleString('en-GB')}`);ldr.remove();state='done';setCrumb('done');const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-err">🚫 <strong>Delivery Declined</strong><br>Our team has been notified and will be in touch.</div></div>`;await botMsg("Your delivery has been <strong>declined</strong>.");await addEl(el,250);await addEl(buildSum('decline','Declined — team notified'),250);}else if(action==='instructions'){ldr.remove();state='instructions';setCrumb('instructions');await botMsg('Please type your delivery instructions below 📝<br><em style="font-size:11px;color:#999">e.g. "Leave in garage", "Ring bell twice"</em>');qrs([{label:'✕ Cancel',fn:()=>{dQR();userMsg('Cancel');cancelFlow();},cls:'grey'}],400);return;}offerNext(550);}catch(e){ldr.remove();await showErr(e,'action');}}
+async function doInstr(val){state='processing';setCrumb('processing');const ref=order.carrier_reference;const ldr=ldrMsg(CONFIG.DEMO_MODE?'Saving…':'Updating Multidrop…');try{await API.updateInstructions(ref,val);await API.addNote(ref,`Instructions via TrackIT: "${val}" — ${new Date().toLocaleString('en-GB')}`);ldr.remove();state='done';setCrumb('done');await botMsg(`✅ <strong>Instructions Saved!</strong><br><blockquote style="border-left:3px solid #3AB54A;padding-left:10px;margin:7px 0;font-style:italic">"${xe(val)}"</blockquote>Our crew will see this before arrival.`);await addEl(buildSum('instructions',val),350);offerNext(500);}catch(e){ldr.remove();await showErr(e,'action');}}
+async function showErr(e,ctx){console.error('[TrackIT]',e);state=ctx==='lookup'?'lookup':'action';let msg='';if(e.code==='NOT_FOUND')msg=e.message+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo: try MD-DEMO-001 + DL1 1GL</em>`:'');else if(e.code==='TIMEOUT')msg='The request timed out. ⏱️ Please try again.';else msg='Something went wrong. 😞 Please try again or contact us.';const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-err">❌ ${msg}</div></div>`;await addEl(el,0);qrs([{label:'🔄 Try Again',fn:()=>{dQR();userMsg('Try again');resetLookup();}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],350);}
+async function humanHandoff(){state='done';setCrumb('done');await botMsg("Of course! Here are our contact details. 👤");const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-info">📞 <strong>Phone:</strong> <a href="tel:${CONFIG.SUPPORT_PHONE.replace(/\s/g,'')}" style="color:#1c5a28;font-weight:600">${CONFIG.SUPPORT_PHONE}</a><br>📧 <strong>Email:</strong> ${xe(CONFIG.SUPPORT_EMAIL)}<br>🕐 <strong>Hours:</strong> ${xe(CONFIG.SUPPORT_HOURS)}<br><span style="font-size:11px;margin-top:4px;display:block">Avg. wait: &lt; 3 minutes</span></div></div>`;await addEl(el,300);qrs([{label:'🤖 Continue with TrackIT',fn:()=>{userMsg('Continue');resetLookup();}},{label:'👋 All Done',fn:()=>{dQR();userMsg('All done');goodbye();}}],450);}
+async function cancelFlow(){await botMsg("No problem! ↩️ Your order hasn't been changed.");resetLookup();}
+async function offerNext(ms=800){setTimeout(async()=>{setCrumb('done');await botMsg("Is there anything else I can help with?",0);qrs([{label:'🔍 Track Another Order',fn:()=>{userMsg('Track another');resetLookup();}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}},{label:'👋 All Done',fn:()=>{dQR();userMsg('All done');goodbye();}}],350);state='post_action';},ms);}
+function resetLookup(){order=null;action=null;pRef=null;pPc=null;state='lookup';setCrumb('lookup');botMsg("Please enter your <strong>consignment number</strong> to look up another order:");}
+async function goodbye(){state='done';setCrumb('done');await botMsg(`Thanks for using <strong>TrackIT</strong>! 👋<br><br>📞 <strong>${CONFIG.SUPPORT_PHONE}</strong><br>📧 <strong>${CONFIG.SUPPORT_EMAIL}</strong><br>🕐 ${CONFIG.SUPPORT_HOURS}<br><br><em>Have a great day – Furdeco 🚚</em>`);}
+function buildCard(o,status){const STEPS=[{k:'received',l:'Received'},{k:'scheduled',l:'Scheduled'},{k:'routed',l:'En Route'},{k:'confirmed',l:'Confirmed'},{k:'delivered',l:'Delivered'}];const stage=STEPS.findLastIndex(s=>o.order_steps[s.k]==='Yes');let trk='<div class="tt-trk">';STEPS.forEach((s,i)=>{const done=o.order_steps[s.k]==='Yes';const cur=i===stage&&done;trk+=`<div class="tt-ts ${done?(cur?'cur':'done'):''}"><div class="tt-tdot">${done?(cur?'●':'✓'):''}</div><div class="tt-tlbl">${s.l}</div></div>`;});trk+='</div>';const prods=(o.products||[]).slice(0,2).map(p=>`<div class="tt-dr"><span class="tt-dk">${xe(p.part)}</span><span class="tt-dv">${xe(p.description)}</span></div>`).join('');const svcs=[o.services?.service_level,o.services?.delivery_point].filter(v=>v&&v!=='N/A');const svcHTML=svcs.length?`<div class="tt-svcs">${svcs.map(s=>`<span class="tt-svc">${xe(s)}</span>`).join('')}</div>`:'';const cb=o.confirmed==='True'?`<span style="font-size:10px;color:#2a8f38;font-weight:600;margin-left:6px">✓ Confirmed</span>`:'';const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent"><div class="tt-card"><div class="tt-ct">📦 Order Details</div><div class="tt-dr"><span class="tt-dk">Consignment</span><span class="tt-dv">${xe(o.carrier_reference)}</span></div><div class="tt-dr"><span class="tt-dk">Order No.</span><span class="tt-dv">${xe(o.order_number)}</span></div><div class="tt-dr"><span class="tt-dk">Retailer</span><span class="tt-dv">${xe(o.sender_company)}</span></div><div class="tt-dr"><span class="tt-dk">Recipient</span><span class="tt-dv">${xe(o.recipient)}</span></div><div class="tt-dr"><span class="tt-dk">Address</span><span class="tt-dv">${xe(o.address)}, ${xe(o.postcode)}</span></div>${prods}<div class="tt-dr" style="margin-top:5px"><span class="tt-dk">Date</span><span class="tt-dv">🗓 ${fmtDate(o.planned_date)}${cb}</span></div><div class="tt-dr"><span class="tt-dk">Slot</span><span class="tt-dv">🕐 ${fmtSlot(o.planned_slot)}</span></div><span class="tt-sb ${status.key}">${xe(status.label)}</span>${svcHTML}${trk}</div></div>`;return el;}
+function buildSum(a,detail){const lbl={confirm:'✅ Confirmed',decline:'❌ Declined',instructions:'📝 Instructions Added'};const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent"><div class="tt-sum"><div class="tt-sum-t">Session Summary</div><div class="tt-sr"><span class="tt-sk">Consignment</span><span class="tt-sv">${xe(order?.carrier_reference||'–')}</span></div><div class="tt-sr"><span class="tt-sk">Action</span><span class="tt-sv">${lbl[a]||a}</span></div><div class="tt-sr"><span class="tt-sk">Detail</span><span class="tt-sv">${xe(detail)}</span></div><div class="tt-sr"><span class="tt-sk">Time</span><span class="tt-sv">${new Date().toLocaleString('en-GB')}</span></div></div></div>`;return el;}
+document.getElementById('tt-snd').onclick=handleInput;
+document.getElementById('tt-inp').addEventListener('keydown',e=>{if(e.key==='Enter')handleInput();});
+</script>
+</body>
+</html>
