@@ -41,10 +41,20 @@
     if (window.__trackitLoaded) return;
     window.__trackitLoaded = true;
 
-    /* ── Origin — hardcoded to your MVC app ──────────────────────── */
-    var ORIGIN = 'https://dev.snapsend.co:550';
-    //var IFRAME_URL = ORIGIN + '/chat';
-    var IFRAME_URL = ORIGIN;
+    /* ── Origin — auto-detected from script src (works in any env)── */
+    var ORIGIN = (function () {
+        var scripts = document.getElementsByTagName('script');
+        for (var i = 0; i < scripts.length; i++) {
+            var src = scripts[i].src;
+            if (src && src.indexOf('embed.js') !== -1) {
+                var a = document.createElement('a');
+                a.href = src;
+                return a.protocol + '//' + a.host;
+            }
+        }
+        return window.location.origin; // fallback
+    })();
+    var IFRAME_URL = ORIGIN + '/chat';
 
     /* ── Read optional config ─────────────────────────────────────── */
     var cfg = window.TrackITConfig || {};

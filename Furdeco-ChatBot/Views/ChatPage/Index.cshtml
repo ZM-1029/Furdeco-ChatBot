@@ -423,18 +423,43 @@ function handleInput(){
 }
 
 async function s1(val){if(RE_G.test(val)){await botMsg("Hello! 😊 Enter your <strong>consignment number</strong>.");return;}pRef=val.toUpperCase().trim();state='lookup_pc';await botMsg("Got it! And your <strong>delivery postcode</strong>?");}
-async function s2(val){pPc=val.toUpperCase().trim();setStep('otp');state='otp_email';await botMsg(`Thanks! 🔒 To verify your identity, please enter the <strong>email address</strong> linked to your order.`);}
+async function s2(val){
+  pPc=val.toUpperCase().trim();
+  /* Fetch the order silently first so we can validate email against it */
+  const ldr=ldrMsg('Checking order…');
+  try{
+    const o=await API.getOrder(pRef,pPc);
+    ldr.remove();
+    order=o; /* store order — email will be validated before OTP is sent */
+    setStep('otp');state='otp_email';
+    await botMsg(`Thanks! 🔒 To verify your identity, please enter the <strong>email address</strong> linked to your order.`);
+  }catch(e){
+    ldr.remove();order=null;await showErr(e,'lookup');
+  }
+}
 
 async function sOtpEmail(val){
-  if(!/^[^\s@@]+@@[^\s@@]+\.[^\s@@]+$/.test(val)){await botMsg("That doesn't look like a valid email. Please try again.");return;}
-  otpEmail=val.toLowerCase().trim();
+  if(!/^[^\s@@]+@@[^\s@@]+\.[^\s@@]+$/.test(val)){
+    await botMsg("That doesn't look like a valid email. Please try again.");return;
+  }
+  const entered=val.toLowerCase().trim().replace(/@@/g,'@@');
+  /* Compare against the email on the fetched order */
+  const onOrder=(order?.email||'').toLowerCase().trim().replace(/@@/g,'@@');
+  if(!onOrder||onOrder==='n/a'||entered!==onOrder){
+    await botMsg("❌ That email is not registered with this order. Please enter the correct email address linked to your delivery.");
+    return; /* stay in otp_email state so they can try again */
+  }
+  otpEmail=val.toLowerCase().trim(); /* keep @@ encoding for API */
   state='otp_sending';
   const ldr=ldrMsg('Sending verification code…');
   try{
     await API.sendOtp(otpEmail);ldr.remove();otpAttempts=0;state='otp_verify';
     await botMsg(`✅ A 6-digit code was sent to <strong>${maskEmail(otpEmail)}</strong>.<br>It expires in 5 minutes.`+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo code: 123456</em>`:''));
     showOtpInput();
-  }catch(e){ldr.remove();await botMsg("❌ Couldn't send the code. Please try again.");qrs([{label:'🔄 Try Again',fn:()=>{userMsg('Try again');state='otp_email';botMsg("Enter your <strong>email address</strong>:");}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],400);}
+  }catch(e){
+    ldr.remove();await botMsg("❌ Couldn't send the code. Please try again.");
+    qrs([{label:'🔄 Try Again',fn:()=>{userMsg('Try again');state='otp_email';botMsg("Enter your <strong>email address</strong>:");}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],400);
+  }
 }
 
 function showOtpInput(){
@@ -497,7 +522,8 @@ async function sOtpVerify(code){
   try{
     await API.verifyOtp(otpEmail,code);ldr.remove();clearInterval(resendTimer);
     setStep('order');await botMsg("✅ <strong>Verified!</strong> Loading your order…",400);
-    await fetchOrder(pRef,pPc);
+    /* Order already fetched during lookup — display it directly */
+    await showOrder();
   }catch(e){
     ldr.remove();otpAttempts++;state='otp_verify';
     if(otpAttempts>=3){await botMsg("❌ Too many attempts.");qrs([{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}},{label:'🔄 Start Over',fn:()=>{userMsg('Start over');resetLookup();}}],400);return;}
@@ -510,10 +536,9 @@ async function sOtpVerify(code){
   }
 }
 
-async function fetchOrder(ref,pc){
-  state='fetching';const ldr=ldrMsg('Fetching order…');let o;
-  try{o=await API.getOrder(ref,pc);}catch(e){ldr.remove();await showErr(e,'lookup');return;}
-  ldr.remove();order=o;const st=deriveStatus(o.order_steps);
+/* showOrder — displays already-fetched order and action buttons */
+async function showOrder(){
+  const o=order;const st=deriveStatus(o.order_steps);
   setStep('order');await botMsg(`📦 Here's your order for <strong>${xe(o.carrier_reference)}</strong>:`,400);
   await addEl(buildCard(o,st),150);state='action';setStep('action');
   await botMsg("What would you like to do?",500);
@@ -527,6 +552,12 @@ async function fetchOrder(ref,pc){
   btns.push({label:'👋 No Action Needed',fn:()=>pickAction('none'),cls:'grey'});
   btns.push({label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}});
   qrs(btns);
+}
+
+async function fetchOrder(ref,pc){
+  state='fetching';const ldr=ldrMsg('Fetching order…');let o;
+  try{o=await API.getOrder(ref,pc);}catch(e){ldr.remove();await showErr(e,'lookup');return;}
+  ldr.remove();order=o;await showOrder();
 }
 
 async function pickAction(a){
