@@ -1,0 +1,618 @@
+@{
+    Layout = null; // No layout — this page lives inside an iframe
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrackIT · Delivery Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+/* iframe-safe reset */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: white; }
+</style>
+</head>
+<body>
+
+<script>
+/* ================================================================
+   TrackIT — IFRAME BUILD
+   Served at /chat — embedded via embed.js on external static sites.
+   All API calls go to the same origin (no CORS needed for API).
+   postMessage bridge allows the parent page to open/close.
+   ================================================================ */
+
+const CONFIG = {
+  DEMO_MODE: false,
+  SUPPORT_PHONE: '0800 123 4567',
+  SUPPORT_EMAIL: 'info@furdeco.co.uk',
+  SUPPORT_HOURS: 'Mon–Sat, 8am–8pm',
+};
+
+/* ================================================================
+   DEMO DATA
+   ================================================================ */
+const DEMO_DB = {
+  'MD-DEMO-001|DL1 1GL': {
+    carrier_reference:'MD-DEMO-001', order_number:'ORD-10001',
+    recipient:'John Smith', sender_company:'SofaWorld UK',
+    address:'14 Oak Avenue, Darlington', postcode:'DL1 1GL',
+    contact_mobile:'07700900000', contact_home:'N/A', email:'john@@example.com',
+    planned_date:'2025/02/20', planned_slot:{start:'09:00',end:'13:00'},
+    confirmed:'False', delivery_instructions:'N/A',
+    order_steps:{released:'Yes',received:'Yes',scheduled:'Yes',routed:'No',confirmed:'No',delivered:'No'},
+    order_options:{allow_cancel_request:'True',allow_service_request:'True'},
+    products:[{description:'3-Seater Corner Sofa',part:'1 of 2'},{description:'3-Seater Corner Sofa',part:'2 of 2'}],
+    services:{service_level:'2 Man',delivery_point:'Room Of Choice'},
+  },
+  'MD-DEMO-002|SR6 8LE': {
+    carrier_reference:'MD-DEMO-002', order_number:'ORD-10002',
+    recipient:'Sarah Jones', sender_company:'Oak & Stone Furniture',
+    address:'7 Maple Road, Sunderland', postcode:'SR6 8LE',
+    contact_mobile:'07700900001', contact_home:'N/A', email:'sarah@@example.com',
+    planned_date:'2025/02/22', planned_slot:{start:'14:00',end:'18:00'},
+    confirmed:'False', delivery_instructions:'N/A',
+    order_steps:{released:'Yes',received:'Yes',scheduled:'No',routed:'No',confirmed:'No',delivered:'No'},
+    order_options:{allow_cancel_request:'True',allow_service_request:'True'},
+    products:[{description:'Solid Oak Dining Table Set',part:'1 of 3'}],
+    services:{service_level:'2 Man',delivery_point:'Room Of Choice'},
+  },
+  'MD-DEMO-003|PH2 8DD': {
+    carrier_reference:'MD-DEMO-003', order_number:'ORD-10003',
+    recipient:'Mike Taylor', sender_company:'Dreams Ltd',
+    address:'3 River Lane, Perth', postcode:'PH2 8DD',
+    contact_mobile:'07700900002', contact_home:'N/A', email:'mike@@example.com',
+    planned_date:'2025/02/19', planned_slot:{start:'10:00',end:'14:00'},
+    confirmed:'True', delivery_instructions:'N/A',
+    order_steps:{released:'Yes',received:'Yes',scheduled:'Yes',routed:'Yes',confirmed:'Yes',delivered:'No'},
+    order_options:{allow_cancel_request:'False',allow_service_request:'True'},
+    products:[{description:'King Size Bed Frame',part:'1 of 2'},{description:'King Size Bed Frame',part:'2 of 2'}],
+    services:{service_level:'2 Man',delivery_point:'Room Of Choice'},
+  },
+};
+
+/* ================================================================
+   API LAYER
+   ================================================================ */
+class Err extends Error{constructor(c,m){super(m);this.code=c;}}
+
+const API = {
+  async getOrder(ref, pc) {
+    if (CONFIG.DEMO_MODE) {
+      await dl(1100);
+      const k = `${ref.toUpperCase()}|${pc.toUpperCase().trim()}`;
+      const o = DEMO_DB[k];
+      if (!o) throw new Err('NOT_FOUND', `No order found for <strong>${xe(ref)}</strong> at <strong>${xe(pc)}</strong>.`);
+      return JSON.parse(JSON.stringify(o));
+    }
+    const url = `/api/chat/track?reference=${encodeURIComponent(ref)}&postcode=${encodeURIComponent(pc)}`;
+    const r = await tf(url);
+    return pTrk(await r.text());
+  },
+
+  async confirmOrder(ref) {
+    if (CONFIG.DEMO_MODE) { await dl(900); return { success: 'ok' }; }
+    return mdPost(ref, 'confirm');
+  },
+
+  async declineOrder(ref) {
+    if (CONFIG.DEMO_MODE) { await dl(900); return { success: 'ok' }; }
+    return mdPost(ref, 'decline');
+  },
+
+  async updateInstructions(ref, txt) {
+    if (CONFIG.DEMO_MODE) { await dl(800); return { success: 'ok' }; }
+    return mdPost(ref, 'update_field', { OtherInstructions: txt });
+  },
+
+  async addNote(ref, note) {
+    if (CONFIG.DEMO_MODE) { await dl(400); return { success: 'ok' }; }
+    return mdPost(ref, 'add_note', { Note: note });
+  },
+
+  async sendOtp(email) {
+    if (CONFIG.DEMO_MODE) { await dl(600); console.log(`[DEMO] OTP for ${email}: 123456`); return { message: 'OTP sent' }; }
+    const r = await tf('/api/chat/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    return r.json();
+  },
+
+  async verifyOtp(email, otp) {
+    if (CONFIG.DEMO_MODE) {
+      await dl(500);
+      if (otp === '123456') return { message: 'OTP verified' };
+      throw new Err('OTP_INVALID', 'Invalid or expired OTP.');
+    }
+    const r = await fetch('/api/chat/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp })
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Err('OTP_INVALID', body.error || 'Invalid or expired OTP.');
+    }
+    return r.json();
+  }
+};
+
+async function mdPost(ref, action, extraFields = {}) {
+  const endpointMap = { confirm:'/api/chat/confirm', decline:'/api/chat/decline', update_field:'/api/chat/instructions', add_note:'/api/chat/note' };
+  const formData = new URLSearchParams();
+  formData.append("reference", ref);
+  if (action === "update_field") formData.append("instructions", extraFields.OtherInstructions);
+  if (action === "add_note") formData.append("note", extraFields.Note);
+  const r = await tf(endpointMap[action], { method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:formData });
+  return pAct(await r.text());
+}
+
+async function tf(url, opts={}, ms=12000) {
+  const c = new AbortController();
+  const id = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { ...opts, signal: c.signal });
+    clearTimeout(id);
+    if (!r.ok) throw new Err('HTTP', `Error ${r.status}`);
+    return r;
+  } catch(e) { clearTimeout(id); if(e.name==='AbortError') throw new Err('TIMEOUT','Request timed out.'); throw e; }
+}
+
+function pTrk(xml) {
+  const d = new DOMParser().parseFromString(xml, 'text/xml');
+  const g = t => d.querySelector(t)?.textContent?.trim() || 'N/A';
+  const gi = (p,t) => d.querySelector(`${p} > ${t}`)?.textContent?.trim() || 'N/A';
+  if (d.querySelector('error')) throw new Err('API', g('error'));
+  return {
+    carrier_reference:g('carrier_reference'), order_number:g('order_number'), recipient:g('recipient'),
+    sender_company:g('sender_company'), address:g('address'), postcode:g('postcode'),
+    contact_mobile:g('contact_mobile'), contact_home:g('contact_home'), email:g('email'),
+    planned_date:g('planned_date'), planned_slot:{start:gi('planned_slot','start'),end:gi('planned_slot','end')},
+    confirmed:g('confirmed'), delivery_instructions:g('delivery_instructions'),
+    order_steps:{released:gi('order_steps','released'),received:gi('order_steps','received'),scheduled:gi('order_steps','scheduled'),routed:gi('order_steps','routed'),confirmed:gi('order_steps','confirmed'),delivered:gi('order_steps','delivered')},
+    order_options:{allow_cancel_request:gi('order_options','allow_cancel_request'),allow_service_request:gi('order_options','allow_service_request')},
+    products:[...d.querySelectorAll('products > delivery > product')].map(p=>({description:p.querySelector('description')?.textContent?.trim()||'',part:p.querySelector('part')?.textContent?.trim()||''})),
+    services:{service_level:gi('services','service_level'),delivery_point:gi('services','delivery_point')},
+  };
+}
+
+function pAct(xml) {
+  const d = new DOMParser().parseFromString(xml, 'text/xml');
+  const e = d.querySelector('error')?.textContent?.trim();
+  if (e) throw new Err('API', e);
+  return { success: d.querySelector('success')?.textContent?.trim() };
+}
+
+/* HELPERS */
+function verifyIdentity(v,o){const n=s=>(s||'').toLowerCase().replace(/[\s\-().+]/g,'');const i=n(v);if(!i)return false;const m=n(o.contact_mobile),h=n(o.contact_home),e=n(o.email);return(m&&m!=='n/a'&&i===m)||(h&&h!=='n/a'&&i===h)||(e&&e!=='n/a'&&i===e);}
+function deriveStatus(s){if(s.delivered==='Yes')return{label:'Delivered',key:'bd'};if(s.routed==='Yes')return{label:'Out for Delivery',key:'bo'};if(s.scheduled==='Yes')return{label:'Scheduled',key:'bs'};if(s.received==='Yes')return{label:'In Warehouse',key:'bw'};return{label:'Order Created',key:'bw'};}
+function fmtDate(s){if(!s||s==='N/A')return'TBC';try{return new Date(s.replace(/\//g,'-')).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});}catch{return s;}}
+function fmtSlot(sl){if(!sl||sl.start==='TBC'||sl.start==='N/A')return'To be confirmed';return`${sl.start} – ${sl.end}`;}
+function dl(ms){return new Promise(r=>setTimeout(r,ms));}
+function xe(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function maskEmail(e){if(!e||!e.includes('@@'))return e;const[u,d]=e.split('@@');return u.slice(0,2)+'•'.repeat(Math.max(2,u.length-2))+'@@'+d;}
+
+/* postMessage bridge — listen for open/close from parent embed.js */
+window.addEventListener('message', function(e) {
+  if (e.data?.type === 'trackit:opened') { setTimeout(() => inp?.focus(), 200); }
+});
+
+/* STYLES */
+const styleEl = document.createElement('style');
+styleEl.textContent = `
+* { box-sizing: border-box; }
+body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; font-family: 'DM Sans', sans-serif; background: white; }
+
+/* HEADER */
+.tt-hdr{background:linear-gradient(150deg,#1e7a2b 0%,#3AB54A 60%,#4fd45f 100%);padding:16px 18px 12px;display:flex;align-items:center;gap:12px;flex-shrink:0;position:relative;overflow:hidden}
+.tt-hdr::before{content:'';position:absolute;top:-30px;right:-30px;width:110px;height:110px;background:rgba(255,255,255,.07);border-radius:50%}
+.tt-hdr::after{content:'';position:absolute;bottom:-20px;left:10px;width:70px;height:70px;background:rgba(255,255,255,.05);border-radius:50%}
+.tt-av{width:40px;height:40px;background:rgba(255,255,255,.18);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;position:relative;z-index:1;border:1.5px solid rgba(255,255,255,.22)}
+.tt-hi{flex:1;position:relative;z-index:1}
+.tt-hn{font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:white;line-height:1.2;letter-spacing:-.2px}
+.tt-hs{font-size:11px;color:rgba(255,255,255,.75);display:flex;align-items:center;gap:5px;margin-top:2px}
+.tt-hs::before{content:'';width:7px;height:7px;background:#7fff7f;border-radius:50%;display:inline-block;animation:ttp 2s infinite;flex-shrink:0}
+@@keyframes ttp{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* PROGRESS STEPS */
+.tt-steps{padding:9px 14px;background:#f8f9fa;border-bottom:1px solid #e8e8ed;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tt-step{display:flex;flex-direction:column;align-items:center}
+.tt-step-dot{width:24px;height:24px;border-radius:50%;border:2px solid #d1d1d6;background:white;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;color:#8e8e93;transition:all .35s;flex-shrink:0}
+.tt-step.done .tt-step-dot{background:#3AB54A;border-color:#3AB54A;color:white}
+.tt-step.active .tt-step-dot{background:white;border-color:#3AB54A;color:#3AB54A;box-shadow:0 0 0 3px rgba(58,181,74,.15)}
+.tt-step-line{width:26px;height:2px;background:#d1d1d6;transition:background .35s;margin-bottom:10px}
+.tt-step-line.done{background:#3AB54A}
+.tt-step-lbl{font-size:8px;color:#8e8e93;font-weight:600;text-align:center;margin-top:3px;letter-spacing:.2px;transition:color .35s}
+.tt-step.active .tt-step-lbl,.tt-step.done .tt-step-lbl{color:#3AB54A}
+
+/* MESSAGES */
+#tt-msgs{flex:1;overflow-y:auto;padding:12px 12px 6px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;min-height:0}
+#tt-msgs::-webkit-scrollbar{width:3px}
+#tt-msgs::-webkit-scrollbar-thumb{background:#e5e5ea;border-radius:2px}
+.tt-row{display:flex;animation:ttIn .26s ease both}
+@@keyframes ttIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.tt-row.u{justify-content:flex-end}
+.tt-bbl{max-width:86%;padding:10px 13px;border-radius:18px;font-size:13px;line-height:1.58;word-break:break-word}
+.tt-row.u .tt-bbl{background:linear-gradient(135deg,#3AB54A,#2fa843);color:white;border-bottom-right-radius:5px;box-shadow:0 2px 8px rgba(58,181,74,.2)}
+.tt-row.b .tt-bbl{background:#f0f0f5;color:#1c1c1e;border-bottom-left-radius:5px}
+.tt-typ{display:flex;align-items:center;gap:5px;padding:10px 13px;background:#f0f0f5;border-radius:18px;border-bottom-left-radius:5px;width:fit-content}
+.tt-td{width:7px;height:7px;background:#b0b0ba;border-radius:50%;animation:ttb 1.2s infinite}
+.tt-td:nth-child(2){animation-delay:.2s}.tt-td:nth-child(3){animation-delay:.4s}
+@@keyframes ttb{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
+.tt-ldr{display:flex;align-items:center;gap:9px;padding:10px 13px;background:#f0f0f5;border-radius:18px;border-bottom-left-radius:5px;font-size:12.5px;color:#8e8e93;width:fit-content}
+.tt-spn{width:15px;height:15px;border:2px solid #e5e5ea;border-top-color:#3AB54A;border-radius:50%;animation:tts .7s linear infinite;flex-shrink:0}
+@@keyframes tts{to{transform:rotate(360deg)}}
+
+/* CARDS */
+.tt-card{background:white;border:1px solid #e5e5ea;border-radius:13px;padding:13px;font-size:12.5px;box-shadow:0 2px 6px rgba(0,0,0,.04)}
+.tt-ct{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#1c1c1e;margin-bottom:9px}
+.tt-dr{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #f5f5f7}
+.tt-dr:last-of-type{border-bottom:none}
+.tt-dk{color:#8e8e93;font-size:11.5px;flex-shrink:0;padding-right:8px}
+.tt-dv{color:#1c1c1e;font-weight:500;font-size:11.5px;text-align:right;max-width:200px}
+.tt-sb{display:inline-block;padding:2px 9px;border-radius:100px;font-size:10px;font-weight:700;margin:6px 0 3px;letter-spacing:.2px}
+.bs{background:#fff3cd;color:#856404}.bw{background:#d1ecf1;color:#0c5460}.bo{background:#d4edda;color:#155724}.bd{background:#e8f7ea;color:#2a8f38}
+.tt-trk{display:flex;align-items:flex-start;margin-top:9px}
+.tt-ts{display:flex;flex-direction:column;align-items:center;flex:1;position:relative}
+.tt-ts:not(:last-child)::after{content:'';position:absolute;top:10px;left:50%;right:-50%;height:2px;background:#e5e5ea;z-index:0}
+.tt-ts.done:not(:last-child)::after,.tt-ts.cur:not(:last-child)::after{background:#3AB54A}
+.tt-tdot{width:20px;height:20px;border-radius:50%;background:#e5e5ea;border:2px solid #e5e5ea;display:flex;align-items:center;justify-content:center;font-size:8px;color:#8e8e93;position:relative;z-index:1;margin-bottom:3px;font-weight:700}
+.tt-ts.done .tt-tdot{background:#3AB54A;border-color:#3AB54A;color:white}
+.tt-ts.cur .tt-tdot{background:white;border-color:#3AB54A;color:#3AB54A;box-shadow:0 0 0 3px rgba(58,181,74,.15)}
+.tt-tlbl{font-size:8px;color:#48484a;text-align:center;line-height:1.3}
+.tt-ts.done .tt-tlbl,.tt-ts.cur .tt-tlbl{color:#3AB54A;font-weight:600}
+
+/* INFO BOXES */
+.tt-info{background:#e8f7ea;border:1px solid rgba(58,181,74,.22);border-radius:11px;padding:10px 13px;font-size:12px;color:#1c5a28;line-height:1.6;margin:2px 0}
+.tt-warn{background:#fff8ec;border:1px solid rgba(245,158,11,.28);border-radius:11px;padding:10px 13px;font-size:12px;color:#5a3a00;line-height:1.6;margin:2px 0}
+.tt-err{background:#fef2f2;border:1px solid rgba(239,68,68,.22);border-radius:11px;padding:10px 13px;font-size:12px;color:#7d1f1f;line-height:1.6;margin:2px 0}
+
+/* QUICK REPLIES */
+.tt-qrs{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px;animation:ttIn .26s ease both .1s;opacity:0;animation-fill-mode:both}
+.tt-qr{padding:6px 12px;border:1.5px solid #3AB54A;background:white;color:#3AB54A;border-radius:100px;font-size:12px;font-weight:500;cursor:pointer;transition:all .18s;font-family:'DM Sans',sans-serif}
+.tt-qr:hover{background:#3AB54A;color:white}
+.tt-qr:disabled{opacity:.36;cursor:default;pointer-events:none}
+.tt-qr.red{border-color:#dc2626;color:#dc2626}.tt-qr.red:hover{background:#dc2626;color:white}
+.tt-qr.grey{border-color:#8e8e93;color:#8e8e93}.tt-qr.grey:hover{background:#8e8e93;color:white}
+
+/* OTP DIGITS */
+.tt-otpcard{background:white;border:1px solid #e5e5ea;border-radius:13px;padding:14px;box-shadow:0 2px 6px rgba(0,0,0,.04)}
+.tt-otpcard label{display:block;font-size:10px;font-weight:700;color:#8e8e93;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.tt-otp-digits{display:flex;gap:7px;margin:8px 0}
+.tt-otp-digit{width:38px;height:46px;border:1.5px solid #e5e5ea;border-radius:10px;text-align:center;font-size:20px;font-family:'Syne',sans-serif;font-weight:700;color:#1c1c1e;outline:none;transition:all .2s;background:#fafafa;-moz-appearance:textfield}
+.tt-otp-digit::-webkit-outer-spin-button,.tt-otp-digit::-webkit-inner-spin-button{-webkit-appearance:none}
+.tt-otp-digit:focus{border-color:#3AB54A;background:white;box-shadow:0 0 0 3px rgba(58,181,74,.1)}
+.tt-otp-digit.filled{border-color:#3AB54A;background:#f0faf1;color:#2a8f38}
+.tt-otp-digit.error{border-color:#dc2626;background:#fef2f2;animation:ttShake .4s ease}
+@@keyframes ttShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.tt-secure{display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8e8e93;background:#f5f5f7;border-radius:8px;padding:5px 9px;margin-top:6px}
+.tt-secure svg{flex-shrink:0;color:#3AB54A}
+.tt-btns{display:flex;gap:7px;margin-top:10px}
+.tt-btn-primary{flex:1;padding:9px;background:linear-gradient(135deg,#3AB54A,#2fa843);color:white;border:none;border-radius:9px;font-family:'Syne',sans-serif;font-weight:700;font-size:11.5px;cursor:pointer;transition:all .2s}
+.tt-btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(58,181,74,.3)}
+.tt-btn-primary:disabled{opacity:.5;cursor:default;transform:none;box-shadow:none}
+.tt-btn-ghost{padding:9px 12px;background:white;color:#8e8e93;border:1.5px solid #e5e5ea;border-radius:9px;font-size:11.5px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s}
+.tt-btn-ghost:hover{border-color:#8e8e93}
+.tt-resend{font-size:10.5px;color:#8e8e93;text-align:center;margin-top:7px}
+.tt-resend a{color:#3AB54A;cursor:pointer;font-weight:600;text-decoration:none}
+
+/* VERIFY / SUMMARY */
+.tt-vcard{background:white;border:1px solid #e5e5ea;border-radius:13px;padding:14px;box-shadow:0 2px 6px rgba(0,0,0,.04)}
+.tt-vcard label{display:block;font-size:10px;font-weight:700;color:#8e8e93;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.tt-vcard input{width:100%;border:1.5px solid #e5e5ea;border-radius:9px;padding:9px 12px;font-size:13px;font-family:'DM Sans',sans-serif;outline:none;transition:all .2s;background:#fafafa}
+.tt-vcard input:focus{border-color:#3AB54A;background:white;box-shadow:0 0 0 3px rgba(58,181,74,.1)}
+.tt-vhint{font-size:10.5px;color:#8e8e93;margin:5px 0 10px;font-style:italic;line-height:1.4}
+.tt-sum{background:white;border:1px solid #e5e5ea;border-radius:13px;padding:13px;box-shadow:0 2px 6px rgba(0,0,0,.04)}
+.tt-sum-t{font-family:'Syne',sans-serif;font-weight:700;font-size:12.5px;color:#3AB54A;margin-bottom:7px}
+.tt-sr{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #f5f5f7}
+.tt-sr:last-child{border-bottom:none;padding-top:6px}
+.tt-sk{color:#8e8e93;font-size:11.5px}.tt-sv{color:#1c1c1e;font-weight:600;font-size:11.5px;text-align:right;max-width:190px}
+.tt-svcs{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}
+.tt-svc{background:#e8f7ea;color:#2a8f38;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:100px}
+
+/* INPUT */
+.tt-ia{padding:9px 12px 11px;border-top:1px solid #e8e8ed;display:flex;gap:7px;align-items:center;flex-shrink:0;background:white}
+#tt-inp{flex:1;border:1.5px solid #e5e5ea;border-radius:100px;padding:9px 15px;font-size:13px;font-family:'DM Sans',sans-serif;outline:none;transition:all .2s;background:#f5f5f7;color:#1c1c1e}
+#tt-inp:focus{border-color:#3AB54A;background:white;box-shadow:0 0 0 3px rgba(58,181,74,.08)}
+#tt-inp::placeholder{color:#b0b0ba}
+#tt-snd{width:38px;height:38px;background:linear-gradient(135deg,#3AB54A,#2fa843);border:none;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0;box-shadow:0 2px 8px rgba(58,181,74,.28)}
+#tt-snd:hover{transform:scale(1.08);box-shadow:0 4px 14px rgba(58,181,74,.38)}
+#tt-snd svg{color:white}
+.tt-foot{text-align:center;font-size:9.5px;color:#c0c0c8;padding:0 14px 8px;flex-shrink:0}
+`;
+document.head.appendChild(styleEl);
+
+/* BUILD WIDGET */
+document.body.innerHTML = `
+<div class="tt-hdr">
+  <div class="tt-av">🚚</div>
+  <div class="tt-hi">
+    <div class="tt-hn">TrackIT by Furdeco</div>
+    <div class="tt-hs">Online · Secure Delivery Portal</div>
+  </div>
+</div>
+<div class="tt-steps" id="tt-steps">
+  <div class="tt-step active" id="step-ref">
+    <div class="tt-step-dot">1</div>
+    <div class="tt-step-lbl">Reference</div>
+  </div>
+  <div class="tt-step-line" id="line-1"></div>
+  <div class="tt-step" id="step-otp">
+    <div class="tt-step-dot">2</div>
+    <div class="tt-step-lbl">Verify</div>
+  </div>
+  <div class="tt-step-line" id="line-2"></div>
+  <div class="tt-step" id="step-order">
+    <div class="tt-step-dot">3</div>
+    <div class="tt-step-lbl">Order</div>
+  </div>
+  <div class="tt-step-line" id="line-3"></div>
+  <div class="tt-step" id="step-action">
+    <div class="tt-step-dot">4</div>
+    <div class="tt-step-lbl">Action</div>
+  </div>
+</div>
+<div id="tt-msgs"></div>
+<div class="tt-ia">
+  <input type="text" id="tt-inp" placeholder="Type a message…" autocomplete="off">
+  <button id="tt-snd" aria-label="Send">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+      <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+    </svg>
+  </button>
+</div>
+<div class="tt-foot">🔒 Secure &amp; Encrypted · Furdeco</div>
+`;
+
+/* STATE */
+let state='lookup',order=null,action=null,pRef=null,pPc=null,otpEmail=null,otpAttempts=0,resendTimer=null;
+const msgs=document.getElementById('tt-msgs');
+const inp=document.getElementById('tt-inp');
+const RE_G=/^(hi|hello|hey|hiya|howdy|good\s*(morning|afternoon|evening))[\s!?.,]*/i;
+const RE_C=/\b(cancel|exit|quit|stop|back|start over|no thanks)\b/i;
+const RE_H=/\b(human|agent|person|operator|speak to someone|real person|call me)\b/i;
+
+function setStep(name){
+  const steps=['ref','otp','order','action'];
+  const idx=steps.indexOf(name);
+  steps.forEach((s,i)=>{
+    const el=document.getElementById(`step-${s}`);
+    if(el)el.className='tt-step'+(i<idx?' done':i===idx?' active':'');
+    const line=document.getElementById(`line-${i+1}`);
+    if(line)line.className='tt-step-line'+(i<idx?' done':'');
+  });
+}
+
+function botMsg(html,ms=750){
+  const tr=raw(`<div class="tt-row b"><div class="tt-typ"><div class="tt-td"></div><div class="tt-td"></div><div class="tt-td"></div></div></div>`);
+  sd();return new Promise(r=>setTimeout(()=>{tr.remove();raw(`<div class="tt-row b"><div class="tt-bbl">${html}</div></div>`);sd();r();},ms));
+}
+function userMsg(t){raw(`<div class="tt-row u"><div class="tt-bbl">${xe(t)}</div></div>`);sd();}
+function ldrMsg(l='Loading…'){const el=raw(`<div class="tt-row b"><div class="tt-ldr"><div class="tt-spn"></div>${l}</div></div>`);sd();return el;}
+function raw(html){const t=document.createElement('div');t.innerHTML=html;const el=t.firstElementChild;msgs.appendChild(el);return el;}
+function addEl(el,ms=0){return new Promise(r=>setTimeout(()=>{msgs.appendChild(el);sd();r();},ms));}
+function qrs(btns,ms=650){return new Promise(r=>setTimeout(()=>{const div=document.createElement('div');div.className='tt-qrs';btns.forEach(b=>{const btn=document.createElement('button');btn.className='tt-qr'+(b.cls?' '+b.cls:'');btn.textContent=b.label;btn.onclick=()=>{dQR();b.fn();};div.appendChild(btn);});msgs.appendChild(div);sd();r();},ms));}
+function dQR(){document.querySelectorAll('.tt-qr').forEach(b=>b.disabled=true);}
+function sd(){setTimeout(()=>msgs.scrollTop=msgs.scrollHeight,60);}
+
+/* FLOW */
+setTimeout(async()=>{
+  setStep('ref');state='lookup';
+  await botMsg(`Hi there! 👋 I'm <strong>TrackIT</strong>, Furdeco's secure delivery assistant.<br><br>Please enter your <strong>consignment number</strong> to get started.`+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo: MD-DEMO-001</em>`:''));
+  inp.focus();
+},300);
+
+function handleInput(){
+  const val=inp.value.trim();if(!val)return;inp.value='';
+  if(RE_H.test(val)){userMsg(val);humanHandoff();return;}
+  if(RE_C.test(val)&&['otp_verify','verify','instructions'].includes(state)){userMsg(val);cancelFlow();return;}
+  userMsg(val);
+  if(state==='lookup')s1(val);
+  else if(state==='lookup_pc')s2(val);
+  else if(state==='otp_email')sOtpEmail(val);
+  else if(state==='otp_verify')sOtpVerify(val);
+  else if(state==='verify')doVerify(val);
+  else if(state==='instructions')doInstr(val);
+  else if(RE_G.test(val))botMsg("Hello! 😊 Enter your <strong>consignment number</strong>.");
+  else botMsg("Enter your <strong>consignment number</strong> or say <em>'talk to a human'</em>.");
+}
+
+async function s1(val){if(RE_G.test(val)){await botMsg("Hello! 😊 Enter your <strong>consignment number</strong>.");return;}pRef=val.toUpperCase().trim();state='lookup_pc';await botMsg("Got it! And your <strong>delivery postcode</strong>?");}
+async function s2(val){pPc=val.toUpperCase().trim();setStep('otp');state='otp_email';await botMsg(`Thanks! 🔒 To verify your identity, please enter the <strong>email address</strong> linked to your order.`);}
+
+async function sOtpEmail(val){
+  if(!/^[^\s@@]+@@[^\s@@]+\.[^\s@@]+$/.test(val)){await botMsg("That doesn't look like a valid email. Please try again.");return;}
+  otpEmail=val.toLowerCase().trim();
+  state='otp_sending';
+  const ldr=ldrMsg('Sending verification code…');
+  try{
+    await API.sendOtp(otpEmail);ldr.remove();otpAttempts=0;state='otp_verify';
+    await botMsg(`✅ A 6-digit code was sent to <strong>${maskEmail(otpEmail)}</strong>.<br>It expires in 5 minutes.`+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo code: 123456</em>`:''));
+    showOtpInput();
+  }catch(e){ldr.remove();await botMsg("❌ Couldn't send the code. Please try again.");qrs([{label:'🔄 Try Again',fn:()=>{userMsg('Try again');state='otp_email';botMsg("Enter your <strong>email address</strong>:");}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],400);}
+}
+
+function showOtpInput(){
+  const el=document.createElement('div');el.className='tt-row b';el.id='otp-widget';
+  el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent"><div class="tt-otpcard">
+    <label>Verification Code</label>
+    <div class="tt-otp-digits" id="otp-digits">
+      ${[0,1,2,3,4,5].map(i=>`<input class="tt-otp-digit" type="number" maxlength="1" min="0" max="9" id="otp-d${i}" autocomplete="off">`).join('')}
+    </div>
+    <div class="tt-secure"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Sent to ${maskEmail(otpEmail)}</div>
+    <div class="tt-btns"><button class="tt-btn-primary" id="otp-submit" onclick="window._ttOtpSubmit()">Verify Code →</button><button class="tt-btn-ghost" onclick="window._ttOtpCancel()">Cancel</button></div>
+    <div class="tt-resend"><a id="otp-resend-btn" onclick="window._ttResend()">Resend</a> <span id="otp-timer"></span></div>
+  </div></div>`;
+  msgs.appendChild(el);sd();
+  setTimeout(()=>{
+    const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
+    digits.forEach((d,i)=>{
+      d.addEventListener('input',()=>{d.value=d.value.replace(/[^0-9]/g,'').slice(-1);d.classList.toggle('filled',!!d.value);if(d.value&&i<5)digits[i+1].focus();if(digits.every(x=>x.value))document.getElementById('otp-submit')?.click();});
+      d.addEventListener('keydown',e=>{if(e.key==='Backspace'&&!d.value&&i>0){digits[i-1].focus();digits[i-1].value='';digits[i-1].classList.remove('filled');}if(e.key==='Enter')document.getElementById('otp-submit')?.click();});
+      d.addEventListener('paste',e=>{const p=(e.clipboardData||window.clipboardData).getData('text').replace(/\D/g,'').slice(0,6);if(p.length===6){p.split('').forEach((c,j)=>{digits[j].value=c;digits[j].classList.add('filled');});setTimeout(()=>document.getElementById('otp-submit')?.click(),100);}e.preventDefault();});
+    });
+    digits[0].focus();startResendTimer(60);
+  },200);
+}
+
+function startResendTimer(secs){
+  clearInterval(resendTimer);
+  const timerEl=document.getElementById('otp-timer'),btn=document.getElementById('otp-resend-btn');
+  if(!timerEl||!btn)return;
+  let s=secs;btn.style.pointerEvents='none';btn.style.opacity='.4';timerEl.textContent=`(${s}s)`;
+  resendTimer=setInterval(()=>{s--;timerEl.textContent=s>0?`(${s}s)`:'';if(s<=0){clearInterval(resendTimer);btn.style.pointerEvents='';btn.style.opacity='';timerEl.textContent='';}},1000);
+}
+
+window._ttResend=async function(){
+  clearInterval(resendTimer);const btn=document.getElementById('otp-resend-btn');
+  if(btn){btn.style.pointerEvents='none';btn.textContent='Sending…';}
+  try{
+    await API.sendOtp(otpEmail);if(btn)btn.textContent='Resend';startResendTimer(60);
+    const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
+    digits.forEach(d=>{d.value='';d.classList.remove('filled','error');});digits[0]?.focus();
+    await botMsg("📨 New code sent!",0);
+  }catch(e){if(btn){btn.textContent='Resend';btn.style.pointerEvents='';}await botMsg("❌ Failed to resend. Try again.",0);}
+};
+
+window._ttOtpSubmit=function(){
+  const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
+  const code=digits.map(d=>d.value).join('');if(code.length<6){digits.find(d=>!d.value)?.focus();return;}
+  digits.forEach(d=>d.disabled=true);document.getElementById('otp-submit').disabled=true;
+  document.querySelectorAll('.tt-btn-ghost').forEach(b=>b.disabled=true);
+  userMsg(code.slice(0,3)+'•••');sOtpVerify(code);
+};
+
+window._ttOtpCancel=function(){
+  document.querySelectorAll('.tt-otp-digit,#otp-submit,.tt-btn-ghost').forEach(b=>b.disabled=true);
+  userMsg('Cancel');cancelFlow();
+};
+
+async function sOtpVerify(code){
+  state='otp_checking';const ldr=ldrMsg('Verifying…');
+  try{
+    await API.verifyOtp(otpEmail,code);ldr.remove();clearInterval(resendTimer);
+    setStep('order');await botMsg("✅ <strong>Verified!</strong> Loading your order…",400);
+    await fetchOrder(pRef,pPc);
+  }catch(e){
+    ldr.remove();otpAttempts++;state='otp_verify';
+    if(otpAttempts>=3){await botMsg("❌ Too many attempts.");qrs([{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}},{label:'🔄 Start Over',fn:()=>{userMsg('Start over');resetLookup();}}],400);return;}
+    const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
+    digits.forEach(d=>{d.classList.add('error');setTimeout(()=>d.classList.remove('error'),500);});
+    digits.forEach(d=>{d.disabled=false;d.value='';d.classList.remove('filled');});
+    document.getElementById('otp-submit').disabled=false;
+    document.querySelectorAll('.tt-btn-ghost').forEach(b=>b.disabled=false);
+    await botMsg(`❌ Incorrect code. ${3-otpAttempts} attempt${3-otpAttempts!==1?'s':''} left.`,0);digits[0]?.focus();
+  }
+}
+
+async function fetchOrder(ref,pc){
+  state='fetching';const ldr=ldrMsg('Fetching order…');let o;
+  try{o=await API.getOrder(ref,pc);}catch(e){ldr.remove();await showErr(e,'lookup');return;}
+  ldr.remove();order=o;const st=deriveStatus(o.order_steps);
+  setStep('order');await botMsg(`📦 Here's your order for <strong>${xe(o.carrier_reference)}</strong>:`,400);
+  await addEl(buildCard(o,st),150);state='action';setStep('action');
+  await botMsg("What would you like to do?",500);
+  const opts=o.order_options,isDel=o.order_steps.delivered==='Yes',isOut=o.order_steps.routed==='Yes'&&!isDel,isCon=o.confirmed==='True';
+  if(isDel){await botMsg("✅ This order has already been <strong>delivered</strong>.",0);qrs([{label:'🔍 Track Another',fn:()=>{userMsg('Track another');resetLookup();}},{label:'👤 Talk to a Human',fn:()=>{userMsg('Talk to a human');humanHandoff();}}]);return;}
+  if(isOut){const w=document.createElement('div');w.className='tt-row b';w.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-warn">⚠️ Order is <strong>out for delivery</strong> today. Confirm/Decline unavailable.</div></div>`;await addEl(w,300);}
+  const btns=[];
+  if(!isOut&&!isCon)btns.push({label:'✅ Confirm Delivery',fn:()=>pickAction('confirm')});
+  if(opts.allow_cancel_request==='True'&&!isOut)btns.push({label:'❌ Decline Delivery',fn:()=>pickAction('decline'),cls:'red'});
+  if(opts.allow_service_request==='True')btns.push({label:'📝 Add Instructions',fn:()=>pickAction('instructions')});
+  btns.push({label:'👋 No Action Needed',fn:()=>pickAction('none'),cls:'grey'});
+  btns.push({label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}});
+  qrs(btns);
+}
+
+async function pickAction(a){
+  action=a;const lbl={confirm:'Confirm Delivery',decline:'Decline Delivery',instructions:'Add Instructions',none:'No action needed'};
+  userMsg(lbl[a]);
+  if(a==='none'){await botMsg(`No problem! Delivery booked for <strong>${fmtDate(order.planned_date)}</strong>, ${fmtSlot(order.planned_slot)}. 🚚`);offerNext(600);return;}
+  state='verify';await botMsg("🔒 Please enter the <strong>mobile number or email</strong> on this order to confirm.");showVerify();
+}
+
+function showVerify(){
+  const el=document.createElement('div');el.className='tt-row b';
+  el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-vcard"><label>Mobile or Email</label><input type="text" id="tt-vi" placeholder="07700900000 or john@example.com" autocomplete="off"><p class="tt-vhint">Must match the details on your order.</p><div class="tt-btns"><button class="tt-btn-primary" onclick="window._ttV()">Confirm →</button><button class="tt-btn-ghost" onclick="window._ttX()">Cancel</button></div></div></div>`;
+  msgs.appendChild(el);sd();setTimeout(()=>document.getElementById('tt-vi')?.focus(),300);
+}
+
+window._ttV=function(){const val=document.getElementById('tt-vi')?.value?.trim();if(!val)return;document.querySelectorAll('#tt-vi,.tt-btn-primary,.tt-btn-ghost').forEach(e=>e.disabled=true);const masked=val.includes('@@')?val.replace(/(.{2}).*(@@.*)/,'$1••••$2'):val.replace(/(\d{5})\d+(\d{3})/,'$1•••$2');userMsg(masked);doVerify(val);};
+window._ttX=function(){document.querySelectorAll('#tt-vi,.tt-btn-primary,.tt-btn-ghost').forEach(e=>e.disabled=true);userMsg('Cancel');cancelFlow();};
+
+async function doVerify(val){
+  if(!verifyIdentity(val,order)){await botMsg("Doesn't match our records. ❌ Try again.");qrs([{label:'🔄 Try Again',fn:()=>{state='verify';showVerify();}},{label:'✕ Cancel',fn:()=>{dQR();userMsg('Cancel');cancelFlow();},cls:'grey'},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],400);return;}
+  state='processing';await botMsg("✅ <strong>Confirmed!</strong> Processing…");setTimeout(performAction,700);
+}
+
+async function performAction(){
+  const ref=order.carrier_reference;const ldr=ldrMsg('Sending update…');
+  try{
+    if(action==='confirm'){await API.confirmOrder(ref);await API.addNote(ref,`Confirmed via TrackIT — ${new Date().toLocaleString('en-GB')}`);ldr.remove();state='done';await botMsg(`🎉 <strong>Delivery Confirmed!</strong><br><strong>${fmtDate(order.planned_date)}</strong>, ${fmtSlot(order.planned_slot)}.`);await addEl(buildSum('confirm',`${fmtDate(order.planned_date)}, ${fmtSlot(order.planned_slot)}`),350);}
+    else if(action==='decline'){await API.declineOrder(ref);await API.addNote(ref,`Declined via TrackIT — ${new Date().toLocaleString('en-GB')}`);ldr.remove();state='done';const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-err">🚫 <strong>Delivery Declined.</strong> Team notified.</div></div>`;await botMsg("Delivery <strong>declined</strong>.");await addEl(el,250);await addEl(buildSum('decline','Declined — team notified'),250);}
+    else if(action==='instructions'){ldr.remove();state='instructions';await botMsg('Type your delivery instructions 📝<br><em style="font-size:11px;color:#999">e.g. "Leave in garage"</em>');qrs([{label:'✕ Cancel',fn:()=>{dQR();userMsg('Cancel');cancelFlow();},cls:'grey'}],400);return;}
+    offerNext(550);
+  }catch(e){ldr.remove();await showErr(e,'action');}
+}
+
+async function doInstr(val){
+  state='processing';const ref=order.carrier_reference;const ldr=ldrMsg('Saving…');
+  try{await API.updateInstructions(ref,val);await API.addNote(ref,`Instructions via TrackIT: "${val}" — ${new Date().toLocaleString('en-GB')}`);ldr.remove();state='done';await botMsg(`✅ <strong>Saved!</strong><blockquote style="border-left:3px solid #3AB54A;padding-left:10px;margin:7px 0;font-style:italic">"${xe(val)}"</blockquote>`);await addEl(buildSum('instructions',val),350);offerNext(500);}catch(e){ldr.remove();await showErr(e,'action');}
+}
+
+async function showErr(e,ctx){
+  state=ctx==='lookup'?'lookup':'action';
+  let msg=e.code==='NOT_FOUND'?e.message:e.code==='TIMEOUT'?'Request timed out. ⏱️':'Something went wrong. 😞';
+  const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-err">❌ ${msg}</div></div>`;
+  await addEl(el,0);qrs([{label:'🔄 Try Again',fn:()=>{dQR();userMsg('Try again');resetLookup();}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],350);
+}
+
+async function humanHandoff(){
+  state='done';await botMsg("Here are our contact details 👤");
+  const el=document.createElement('div');el.className='tt-row b';
+  el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-info">📞 <strong>Phone:</strong> <a href="tel:${CONFIG.SUPPORT_PHONE.replace(/\s/g,'')}" style="color:#1c5a28;font-weight:600">${CONFIG.SUPPORT_PHONE}</a><br>📧 <strong>Email:</strong> ${xe(CONFIG.SUPPORT_EMAIL)}<br>🕐 <strong>Hours:</strong> ${xe(CONFIG.SUPPORT_HOURS)}</div></div>`;
+  await addEl(el,300);qrs([{label:'🤖 Continue with TrackIT',fn:()=>{userMsg('Continue');resetLookup();}},{label:'👋 All Done',fn:()=>{dQR();userMsg('All done');goodbye();}}],450);
+}
+
+async function cancelFlow(){await botMsg("No problem! ↩️ Nothing changed.");resetLookup();}
+
+async function offerNext(ms=800){
+  setTimeout(async()=>{await botMsg("Anything else I can help with?",0);qrs([{label:'🔍 Track Another',fn:()=>{userMsg('Track another');resetLookup();}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}},{label:'👋 All Done',fn:()=>{dQR();userMsg('All done');goodbye();}}],350);state='post_action';},ms);
+}
+
+function resetLookup(){order=null;action=null;pRef=null;pPc=null;otpEmail=null;otpAttempts=0;clearInterval(resendTimer);state='lookup';setStep('ref');botMsg("Enter your <strong>consignment number</strong> to start:");}
+
+async function goodbye(){state='done';await botMsg(`Thanks for using <strong>TrackIT</strong>! 👋<br>📞 ${CONFIG.SUPPORT_PHONE} · 📧 ${CONFIG.SUPPORT_EMAIL}`);}
+
+function buildCard(o,status){
+  const STEPS=[{k:'received',l:'Received'},{k:'scheduled',l:'Scheduled'},{k:'routed',l:'En Route'},{k:'confirmed',l:'Confirmed'},{k:'delivered',l:'Delivered'}];
+  const stage=STEPS.findLastIndex(s=>o.order_steps[s.k]==='Yes');
+  let trk='<div class="tt-trk">';
+  STEPS.forEach((s,i)=>{const done=o.order_steps[s.k]==='Yes';const cur=i===stage&&done;trk+=`<div class="tt-ts ${done?(cur?'cur':'done'):''}"><div class="tt-tdot">${done?(cur?'●':'✓'):''}</div><div class="tt-tlbl">${s.l}</div></div>`;});
+  trk+='</div>';
+  const prods=(o.products||[]).slice(0,2).map(p=>`<div class="tt-dr"><span class="tt-dk">${xe(p.part)}</span><span class="tt-dv">${xe(p.description)}</span></div>`).join('');
+  const svcs=[o.services?.service_level,o.services?.delivery_point].filter(v=>v&&v!=='N/A');
+  const svcHTML=svcs.length?`<div class="tt-svcs">${svcs.map(s=>`<span class="tt-svc">${xe(s)}</span>`).join('')}</div>`:'';
+  const cb=o.confirmed==='True'?`<span style="font-size:10px;color:#2a8f38;font-weight:700;margin-left:5px">✓ Confirmed</span>`:'';
+  const el=document.createElement('div');el.className='tt-row b';
+  el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent"><div class="tt-card"><div class="tt-ct">📦 Order Details</div><div class="tt-dr"><span class="tt-dk">Consignment</span><span class="tt-dv">${xe(o.carrier_reference)}</span></div><div class="tt-dr"><span class="tt-dk">Order No.</span><span class="tt-dv">${xe(o.order_number)}</span></div><div class="tt-dr"><span class="tt-dk">Retailer</span><span class="tt-dv">${xe(o.sender_company)}</span></div><div class="tt-dr"><span class="tt-dk">Recipient</span><span class="tt-dv">${xe(o.recipient)}</span></div><div class="tt-dr"><span class="tt-dk">Address</span><span class="tt-dv">${xe(o.address)}, ${xe(o.postcode)}</span></div>${prods}<div class="tt-dr" style="margin-top:4px"><span class="tt-dk">Date</span><span class="tt-dv">🗓 ${fmtDate(o.planned_date)}${cb}</span></div><div class="tt-dr"><span class="tt-dk">Slot</span><span class="tt-dv">🕐 ${fmtSlot(o.planned_slot)}</span></div><span class="tt-sb ${status.key}">${xe(status.label)}</span>${svcHTML}${trk}</div></div>`;
+  return el;
+}
+
+function buildSum(a,detail){
+  const lbl={confirm:'✅ Confirmed',decline:'❌ Declined',instructions:'📝 Instructions Added'};
+  const el=document.createElement('div');el.className='tt-row b';
+  el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent"><div class="tt-sum"><div class="tt-sum-t">Session Summary</div><div class="tt-sr"><span class="tt-sk">Consignment</span><span class="tt-sv">${xe(order?.carrier_reference||'–')}</span></div><div class="tt-sr"><span class="tt-sk">Action</span><span class="tt-sv">${lbl[a]||a}</span></div><div class="tt-sr"><span class="tt-sk">Detail</span><span class="tt-sv">${xe(detail)}</span></div><div class="tt-sr"><span class="tt-sk">Time</span><span class="tt-sv">${new Date().toLocaleString('en-GB')}</span></div></div></div>`;
+  return el;
+}
+
+document.getElementById('tt-snd').onclick=handleInput;
+document.getElementById('tt-inp').addEventListener('keydown',e=>{if(e.key==='Enter')handleInput();});
+</script>
+</body>
+</html>
