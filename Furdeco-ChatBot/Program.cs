@@ -1,4 +1,5 @@
 using Furdeco_ChatBot.Service;
+using static System.Collections.Specialized.BitVector32;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IOtpService, OtpService>();
@@ -19,17 +20,19 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Remove("X-Frame-Options");
+    context.Response.Headers.Append("Content-Security-Policy", "frame-ancestors *;");
+    await next();
+});
+
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment() )
 {
     app.UseExceptionHandler("/Home/Error");
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.Use(async (context, next) =>
-    {
-        context.Response.Headers.Remove("X-Frame-Options");
-        context.Response.Headers.Append("Content-Security-Policy", "frame-ancestors *;");
-        await next();
-    });
+   
 
     app.UseHsts();
 }
@@ -48,3 +51,10 @@ app.MapControllerRoute(
     pattern: "{controller=ChatPage}/{action=Index}/{id?}");
 
 app.Run();
+
+// Use this script for chatbot in static site 
+
+//@section Scripts
+//{
+//    <script src="https://dev.snapsend.co:550/scripts/embed.js"></script>
+//}

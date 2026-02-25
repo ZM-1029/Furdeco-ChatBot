@@ -143,14 +143,9 @@
     iframe.title = 'TrackIT Delivery Assistant';
     iframe.setAttribute('allow', 'clipboard-write');
     var iframeReady = false;
-    var iframeSrcSet = false; /* track if src was assigned — iframe.src is 'about:blank' by default (truthy) so we can't rely on !iframe.src */
     iframe.onload = function () {
         iframeReady = true;
         setTimeout(function () { skeleton.classList.add('hidden'); }, 350);
-        /* If panel is already open (slow load), notify the iframe now */
-        if (isOpen) {
-            try { iframe.contentWindow.postMessage({ type: 'trackit:opened' }, ORIGIN); } catch (e) { }
-        }
     };
 
     /* Panel */
@@ -204,21 +199,14 @@
         }
 
         /* Lazy-load iframe on first open */
-        if (!iframeSrcSet) {
-            iframeSrcSet = true;
+        if (!iframeReady && !iframe.src) {
             skeleton.classList.remove('hidden');
             iframe.src = IFRAME_URL;
         }
 
-        /* Tell iframe it's visible — only once loaded */
+        /* Tell iframe it's visible */
         if (iframeReady) {
             try { iframe.contentWindow.postMessage({ type: 'trackit:opened' }, ORIGIN); } catch (e) { }
-        } else {
-            /* Iframe still loading — notify it as soon as it's ready */
-            iframe.addEventListener('load', function onFirstLoad() {
-                iframe.removeEventListener('load', onFirstLoad);
-                try { iframe.contentWindow.postMessage({ type: 'trackit:opened' }, ORIGIN); } catch (e) { }
-            });
         }
     }
 
@@ -226,10 +214,7 @@
         isOpen = false;
         wrap.classList.remove('open');
         btn.setAttribute('aria-expanded', 'false');
-        /* Only postMessage if iframe has actually loaded — avoids cross-origin errors */
-        if (iframeReady) {
-            try { iframe.contentWindow.postMessage({ type: 'trackit:closed' }, ORIGIN); } catch (e) { }
-        }
+        try { iframe.contentWindow.postMessage({ type: 'trackit:closed' }, ORIGIN); } catch (e) { }
     }
 
     /* Toggle on button click */

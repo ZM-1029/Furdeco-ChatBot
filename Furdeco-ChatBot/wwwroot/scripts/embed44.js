@@ -143,7 +143,6 @@
     iframe.title = 'TrackIT Delivery Assistant';
     iframe.setAttribute('allow', 'clipboard-write');
     var iframeReady = false;
-    var iframeSrcSet = false; /* track if src was assigned — iframe.src is 'about:blank' by default (truthy) so we can't rely on !iframe.src */
     iframe.onload = function () {
         iframeReady = true;
         setTimeout(function () { skeleton.classList.add('hidden'); }, 350);
@@ -204,8 +203,7 @@
         }
 
         /* Lazy-load iframe on first open */
-        if (!iframeSrcSet) {
-            iframeSrcSet = true;
+        if (!iframeReady && !iframe.src) {
             skeleton.classList.remove('hidden');
             iframe.src = IFRAME_URL;
         }

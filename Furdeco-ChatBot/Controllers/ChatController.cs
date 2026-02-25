@@ -112,7 +112,6 @@ public class ChatController : ControllerBase
 
         return Ok(new { message = "OTP verified" });
     }
-
     private async Task SendOtpEmail(string toEmail, string otp)
     {
         var smtp = _config["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
