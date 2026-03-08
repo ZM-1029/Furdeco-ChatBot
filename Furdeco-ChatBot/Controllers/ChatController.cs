@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 [ApiController]
 public class ChatController : ControllerBase
 {
+    private const string NoOrderMessage = "We couldn't find an order with that consignment number and postcode. Please check both and try again.";
     private readonly IHttpClientFactory _factory;
     private readonly IConfiguration _config;
     private readonly IOtpService _otpService;
@@ -28,11 +29,20 @@ public class ChatController : ControllerBase
     [HttpGet("track")]
     public async Task<IActionResult> Track(string reference, string postcode)
     {
-        var client = _factory.CreateClient();
+        var client = _factory.CreateClient("GSIT");
         var url = $"{BaseUrl}/_portal/api/_tracking/?key={ApiKey}&carrier_reference={reference}&postcode={postcode}";
-        var response = await client.GetAsync(url);
-        var result = await response.Content.ReadAsStringAsync();
-        return Content(result, "application/xml");
+        try
+        {
+            var response = await client.GetAsync(url);
+            var result = await response.Content.ReadAsStringAsync();
+            if (result.IndexOf("<error>", StringComparison.OrdinalIgnoreCase) >= 0)
+                return Content($"<response><error>{NoOrderMessage}</error></response>", "application/xml");
+            return Content(result, "application/xml");
+        }
+        catch (TaskCanceledException)
+        {
+            return new ContentResult { Content = "<response><error>Request timed out. Please try again.</error></response>", ContentType = "application/xml", StatusCode = 504 };
+        }
     }
 
     // CONFIRM
@@ -70,14 +80,21 @@ public class ChatController : ControllerBase
     private async Task<IActionResult> UpdateOrder(string reference, string action,
         Dictionary<string, string>? extra = null)
     {
-        var client = _factory.CreateClient();
+        var client = _factory.CreateClient("GSIT");
         var url = $"{BaseUrl}/_portal/api/_orders/update/?key={ApiKey}&carrier_reference={reference}&action={action}";
         var content = extra != null
             ? new FormUrlEncodedContent(extra)
             : new FormUrlEncodedContent(new Dictionary<string, string>());
-        var response = await client.PostAsync(url, content);
-        var result = await response.Content.ReadAsStringAsync();
-        return Content(result, "application/xml");
+        try
+        {
+            var response = await client.PostAsync(url, content);
+            var result = await response.Content.ReadAsStringAsync();
+            return Content(result, "application/xml");
+        }
+        catch (TaskCanceledException)
+        {
+            return new ContentResult { Content = "<response><error>Request timed out. Please try again.</error></response>", ContentType = "application/xml", StatusCode = 504 };
+        }
     }
 
     // STEP 1 - Send OTP

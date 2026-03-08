@@ -19,7 +19,8 @@
 
         const CONFIG = {
           DEMO_MODE: false,
-          SUPPORT_PHONE: '0800 123 4567',
+          API_TIMEOUT_MS: 15000,
+          SUPPORT_PHONE: '+44 (0) 121 285 5255',
           SUPPORT_EMAIL: 'info@furdeco.co.uk',
           SUPPORT_HOURS: 'Mon–Sat, 8am–8pm',
           /* Furdeco brand colours — align with furdeco_brand_guidelines_v1-2_2023_draft.pdf */
@@ -168,12 +169,15 @@
           return pAct(await r.text());
         }
 
-        async function tf(url, opts={}, ms=12000) {
+        async function tf(url, opts={}, ms) {
+          const timeout = (typeof CONFIG !== 'undefined' && CONFIG.API_TIMEOUT_MS) ? CONFIG.API_TIMEOUT_MS : 12000;
+          const t = ms ?? timeout;
           const c = new AbortController();
-          const id = setTimeout(() => c.abort(), ms);
+          const id = setTimeout(() => c.abort(), t);
           try {
             const r = await fetch(url, { ...opts, signal: c.signal });
             clearTimeout(id);
+            if (r.status === 504) throw new Err('TIMEOUT', 'Request timed out.');
             if (!r.ok) throw new Err('HTTP', `Error ${r.status}`);
             return r;
           } catch(e) {
@@ -932,8 +936,11 @@
           console.error('[TrackIT]',e);
           state=ctx==='lookup'?'lookup':'action';
           let msg='';
-          if(e.code==='NOT_FOUND')msg=e.message+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo: try MD-DEMO-001 + DL1 1GL</em>`:'');
-          else if(e.code==='TIMEOUT')msg='The request timed out. ⏱️ Please try again.';
+          if(ctx==='lookup'&&(e.code==='NOT_FOUND'||e.code==='API')){
+            msg='We couldn\'t find an order with that consignment number and postcode. Please check the details and try again.';
+            if(CONFIG.DEMO_MODE&&e.code==='NOT_FOUND')msg+=`<br><em style="font-size:11px;color:#999">Demo: try MD-DEMO-001 + DL1 1GL</em>`;
+          }else if(e.code==='NOT_FOUND')msg=e.message+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo: try MD-DEMO-001 + DL1 1GL</em>`:'');
+          else if(e.code==='TIMEOUT')msg='The request took too long. ⏱️ Please try again.';
           else msg='Something went wrong. 😞 Please try again or contact us.';
           const el=document.createElement('div');el.className='tt-row b';
           el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-err">❌ ${msg}</div></div>`;
