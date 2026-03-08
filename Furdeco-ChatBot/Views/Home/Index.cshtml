@@ -1,4 +1,4 @@
-﻿@{
+@{
     Layout = null;
 }
 
@@ -23,6 +23,13 @@
           SUPPORT_PHONE: '0800 123 4567',
           SUPPORT_EMAIL: 'info@furdeco.co.uk',
           SUPPORT_HOURS: 'Mon–Sat, 8am–8pm',
+          /* Furdeco brand colours — align with furdeco_brand_guidelines_v1-2_2023_draft.pdf */
+          BRAND_PRIMARY: '#3AB54A',
+          BRAND_PRIMARY_DARK: '#2a8f38',
+          BRAND_PRIMARY_LIGHT: '#4fd45f',
+          BRAND_HEADER_START: '#1e7a2b',
+          BRAND_GRADIENT_MID: '#2fa843',
+          BRAND_PRIMARY_RGB: '58, 181, 74',
         };
 
         /* ================================================================
@@ -106,34 +113,38 @@
             return mdPost(ref, 'add_note', { Note: note });
           },
 
-          async sendOtp(email) {
+          async sendOtp(type, identifier) {
             if (CONFIG.DEMO_MODE) {
               await dl(600);
-              console.log(`[DEMO] OTP for ${email}: 123456`);
+              console.log(`[DEMO] OTP for ${identifier}: 123456`);
               return { message: 'OTP sent successfully' };
             }
+            const body = { type };
+            if (type === 'email') body.email = identifier; else body.phone = identifier;
             const r = await tf('/api/chat/send-otp', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email })
+              body: JSON.stringify(body)
             });
             return r.json();
           },
 
-          async verifyOtp(email, otp) {
+          async verifyOtp(type, identifier, otp) {
             if (CONFIG.DEMO_MODE) {
               await dl(500);
               if (otp === '123456') return { message: 'OTP verified' };
               throw new Err('OTP_INVALID', 'Invalid or expired OTP.');
             }
+            const body = { otp };
+            if (type === 'email') body.email = identifier; else body.phone = identifier;
             const r = await fetch('/api/chat/verify-otp', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email, otp })
+              body: JSON.stringify(body)
             });
             if (!r.ok) {
-              const body = await r.json().catch(() => ({}));
-              throw new Err('OTP_INVALID', body.error || 'Invalid or expired OTP.');
+              const resBody = await r.json().catch(() => ({}));
+              throw new Err('OTP_INVALID', resBody.error || 'Invalid or expired OTP.');
             }
             return r.json();
           }
@@ -220,19 +231,36 @@
         function fmtSlot(sl){if(!sl||sl.start==='TBC'||sl.start==='N/A')return'To be confirmed';return`${sl.start} – ${sl.end}`;}
         function dl(ms){return new Promise(r=>setTimeout(r,ms));}
         function xe(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+        /* Next Mon–Fri with day and date for preferred delivery options */
+        function getNextWeekdayOptions(){
+          const today=new Date();
+          const opts=[];
+          for(let w=1;w<=5;w++){
+            const d=new Date(today);
+            const cur=today.getDay();
+            const daysAhead=cur===0?w:(w>=cur?w-cur:7-cur+w);
+            d.setDate(today.getDate()+daysAhead);
+            const dayName=d.toLocaleDateString('en-GB',{weekday:'long'});
+            const dateStr=d.toLocaleDateString('en-GB',{day:'numeric',month:'long'});
+            opts.push({label:`📅 ${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}`,instruction:`Preferred delivery: ${dayName} ${dateStr} (not guaranteed — we will be in touch).`});
+          }
+          return opts;
+        }
         function maskEmail(e){if(!e||!e.includes('@@'))return e;const[u,d]=e.split('@@');return u.slice(0,2)+'•'.repeat(Math.max(2,u.length-2))+'@@'+d;}
+        function maskPhone(p){if(!p)return p;const d=(p||'').replace(/\D/g,'');if(d.length<4)return '••••';if(d.startsWith('44')&&d.length>=10)return d.slice(0,5)+'•••'+d.slice(-4);return d.slice(0,3)+'•••'+d.slice(-4);}
 
         /* STYLES */
         const s=document.createElement('style');
         s.textContent=`
+        :root{--tt-primary:${CONFIG.BRAND_PRIMARY};--tt-primary-dark:${CONFIG.BRAND_PRIMARY_DARK};--tt-primary-light:${CONFIG.BRAND_PRIMARY_LIGHT};--tt-header-start:${CONFIG.BRAND_HEADER_START};--tt-gradient-mid:${CONFIG.BRAND_GRADIENT_MID};--tt-primary-rgb:${CONFIG.BRAND_PRIMARY_RGB};}
         @@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap');
         *{box-sizing:border-box}
         #tt-bubble{position:fixed;bottom:28px;right:28px;z-index:999999;font-family:'DM Sans',sans-serif}
 
         /* TOGGLE BUTTON */
-        #tt-toggle{width:68px;height:68px;background:#3AB54A;border-radius:50%;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 8px 28px rgba(58,181,74,.45);transition:all .25s;position:relative;animation:ttPop .6s ease both 1.5s}
+        #tt-toggle{width:68px;height:68px;background:var(--tt-primary);border-radius:50%;border:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 8px 28px rgba(var(--tt-primary-rgb),.45);transition:all .25s;position:relative;animation:ttPop .6s ease both 1.5s}
         @@keyframes ttPop{from{transform:scale(0);opacity:0}60%{transform:scale(1.12)}to{transform:scale(1);opacity:1}}
-        #tt-toggle:hover{transform:scale(1.08);box-shadow:0 12px 36px rgba(58,181,74,.55)}
+        #tt-toggle:hover{transform:scale(1.08);box-shadow:0 12px 36px rgba(var(--tt-primary-rgb),.55)}
         #tt-toggle svg{color:white;flex-shrink:0}
         .tt-lbl{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;color:white;letter-spacing:.5px}
         .tt-dot{position:absolute;top:6px;right:6px;width:14px;height:14px;background:#ff3b30;border-radius:50%;border:2px solid white;font-size:8px;color:white;display:flex;align-items:center;justify-content:center;font-weight:700;animation:ttPulse 2s ease infinite}
@@ -243,7 +271,7 @@
         #tt-win.open{transform:scale(1) translateY(0);opacity:1;pointer-events:all}
 
         /* HEADER */
-        .tt-hdr{background:linear-gradient(150deg,#1e7a2b 0%,#3AB54A 60%,#4fd45f 100%);padding:18px 20px 14px;display:flex;align-items:center;gap:14px;flex-shrink:0;position:relative;overflow:hidden}
+        .tt-hdr{background:linear-gradient(150deg,var(--tt-header-start) 0%,var(--tt-primary) 60%,var(--tt-primary-light) 100%);padding:18px 20px 14px;display:flex;align-items:center;gap:14px;flex-shrink:0;position:relative;overflow:hidden}
         .tt-hdr::before{content:'';position:absolute;top:-30px;right:-30px;width:120px;height:120px;background:rgba(255,255,255,.07);border-radius:50%}
         .tt-hdr::after{content:'';position:absolute;bottom:-20px;left:20px;width:80px;height:80px;background:rgba(255,255,255,.05);border-radius:50%}
         .tt-av{width:44px;height:44px;background:rgba(255,255,255,.18);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;position:relative;z-index:1;border:1.5px solid rgba(255,255,255,.25)}
@@ -259,12 +287,12 @@
         .tt-steps{padding:10px 16px;background:#f8f9fa;border-bottom:1px solid #e8e8ed;display:flex;align-items:center;justify-content:center;gap:0;flex-shrink:0}
         .tt-step{display:flex;align-items:center;gap:0}
         .tt-step-dot{width:26px;height:26px;border-radius:50%;border:2px solid #d1d1d6;background:white;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#8e8e93;transition:all .35s;flex-shrink:0}
-        .tt-step.done .tt-step-dot{background:#3AB54A;border-color:#3AB54A;color:white}
-        .tt-step.active .tt-step-dot{background:white;border-color:#3AB54A;color:#3AB54A;box-shadow:0 0 0 3px rgba(58,181,74,.15)}
+        .tt-step.done .tt-step-dot{background:var(--tt-primary);border-color:var(--tt-primary);color:white}
+        .tt-step.active .tt-step-dot{background:white;border-color:var(--tt-primary);color:var(--tt-primary);box-shadow:0 0 0 3px rgba(var(--tt-primary-rgb),.15)}
         .tt-step-line{width:28px;height:2px;background:#d1d1d6;transition:background .35s}
-        .tt-step.done + .tt-step-line,.tt-step.done .tt-step-line,.tt-step-line.done{background:#3AB54A}
+        .tt-step.done + .tt-step-line,.tt-step.done .tt-step-line,.tt-step-line.done{background:var(--tt-primary)}
         .tt-step-lbl{font-size:8.5px;color:#8e8e93;font-weight:600;text-align:center;margin-top:3px;letter-spacing:.2px;transition:color .35s}
-        .tt-step.active .tt-step-lbl,.tt-step.done .tt-step-lbl{color:#3AB54A}
+        .tt-step.active .tt-step-lbl,.tt-step.done .tt-step-lbl{color:var(--tt-primary)}
         .tt-step-wrap{display:flex;flex-direction:column;align-items:center;gap:0}
 
         /* MESSAGES */
@@ -275,14 +303,14 @@
         @@keyframes ttIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
         .tt-row.u{justify-content:flex-end}
         .tt-bbl{max-width:86%;padding:10px 14px;border-radius:18px;font-size:13.5px;line-height:1.58;word-break:break-word}
-        .tt-row.u .tt-bbl{background:linear-gradient(135deg,#3AB54A,#2fa843);color:white;border-bottom-right-radius:5px;box-shadow:0 2px 8px rgba(58,181,74,.25)}
+        .tt-row.u .tt-bbl{background:linear-gradient(135deg,var(--tt-primary),var(--tt-gradient-mid));color:white;border-bottom-right-radius:5px;box-shadow:0 2px 8px rgba(var(--tt-primary-rgb),.25)}
         .tt-row.b .tt-bbl{background:#f0f0f5;color:#1c1c1e;border-bottom-left-radius:5px}
         .tt-typ{display:flex;align-items:center;gap:5px;padding:11px 14px;background:#f0f0f5;border-radius:18px;border-bottom-left-radius:5px;width:fit-content}
         .tt-td{width:7px;height:7px;background:#b0b0ba;border-radius:50%;animation:ttb 1.2s infinite}
         .tt-td:nth-child(2){animation-delay:.2s}.tt-td:nth-child(3){animation-delay:.4s}
         @@keyframes ttb{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
         .tt-ldr{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f0f0f5;border-radius:18px;border-bottom-left-radius:5px;font-size:13px;color:#8e8e93;width:fit-content}
-        .tt-spn{width:16px;height:16px;border:2px solid #e5e5ea;border-top-color:#3AB54A;border-radius:50%;animation:tts .7s linear infinite;flex-shrink:0}
+        .tt-spn{width:16px;height:16px;border:2px solid #e5e5ea;border-top-color:var(--tt-primary);border-radius:50%;animation:tts .7s linear infinite;flex-shrink:0}
         @@keyframes tts{to{transform:rotate(360deg)}}
 
         /* CARDS */
@@ -293,28 +321,28 @@
         .tt-dk{color:#8e8e93;font-size:12px;flex-shrink:0;padding-right:8px}
         .tt-dv{color:#1c1c1e;font-weight:500;font-size:12px;text-align:right;max-width:210px}
         .tt-sb{display:inline-block;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700;margin:7px 0 4px;letter-spacing:.2px}
-        .bs{background:#fff3cd;color:#856404}.bw{background:#d1ecf1;color:#0c5460}.bo{background:#d4edda;color:#155724}.bd{background:#e8f7ea;color:#2a8f38}
+        .bs{background:#fff3cd;color:#856404}.bw{background:#d1ecf1;color:#0c5460}.bo{background:#d4edda;color:#155724}.bd{background:#e8f7ea;color:var(--tt-primary-dark)}
 
         /* TRACKER */
         .tt-trk{display:flex;align-items:flex-start;margin-top:10px}
         .tt-ts{display:flex;flex-direction:column;align-items:center;flex:1;position:relative}
         .tt-ts:not(:last-child)::after{content:'';position:absolute;top:10px;left:50%;right:-50%;height:2px;background:#e5e5ea;z-index:0}
-        .tt-ts.done:not(:last-child)::after,.tt-ts.cur:not(:last-child)::after{background:#3AB54A}
+        .tt-ts.done:not(:last-child)::after,.tt-ts.cur:not(:last-child)::after{background:var(--tt-primary)}
         .tt-tdot{width:20px;height:20px;border-radius:50%;background:#e5e5ea;border:2px solid #e5e5ea;display:flex;align-items:center;justify-content:center;font-size:8px;color:#8e8e93;position:relative;z-index:1;margin-bottom:4px;font-weight:700}
-        .tt-ts.done .tt-tdot{background:#3AB54A;border-color:#3AB54A;color:white}
-        .tt-ts.cur .tt-tdot{background:white;border-color:#3AB54A;color:#3AB54A;box-shadow:0 0 0 3px rgba(58,181,74,.15)}
+        .tt-ts.done .tt-tdot{background:var(--tt-primary);border-color:var(--tt-primary);color:white}
+        .tt-ts.cur .tt-tdot{background:white;border-color:var(--tt-primary);color:var(--tt-primary);box-shadow:0 0 0 3px rgba(var(--tt-primary-rgb),.15)}
         .tt-tlbl{font-size:8.5px;color:#48484a;text-align:center;line-height:1.3}
-        .tt-ts.done .tt-tlbl,.tt-ts.cur .tt-tlbl{color:#3AB54A;font-weight:600}
+        .tt-ts.done .tt-tlbl,.tt-ts.cur .tt-tlbl{color:var(--tt-primary);font-weight:600}
 
         /* INFO BOXES */
-        .tt-info{background:#e8f7ea;border:1px solid rgba(58,181,74,.25);border-radius:12px;padding:11px 14px;font-size:12.5px;color:#1c5a28;line-height:1.6;margin:3px 0}
+        .tt-info{background:#e8f7ea;border:1px solid rgba(var(--tt-primary-rgb),.25);border-radius:12px;padding:11px 14px;font-size:12.5px;color:#1c5a28;line-height:1.6;margin:3px 0}
         .tt-warn{background:#fff8ec;border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:11px 14px;font-size:12.5px;color:#5a3a00;line-height:1.6;margin:3px 0}
         .tt-err{background:#fef2f2;border:1px solid rgba(239,68,68,.25);border-radius:12px;padding:11px 14px;font-size:12.5px;color:#7d1f1f;line-height:1.6;margin:3px 0}
 
         /* QUICK REPLY BUTTONS */
         .tt-qrs{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px;animation:ttIn .26s ease both .1s;opacity:0;animation-fill-mode:both}
-        .tt-qr{padding:7px 13px;border:1.5px solid #3AB54A;background:white;color:#3AB54A;border-radius:100px;font-size:12.5px;font-weight:500;cursor:pointer;transition:all .18s;font-family:'DM Sans',sans-serif;line-height:1.3}
-        .tt-qr:hover{background:#3AB54A;color:white;box-shadow:0 3px 10px rgba(58,181,74,.25)}
+        .tt-qr{padding:7px 13px;border:1.5px solid var(--tt-primary);background:white;color:var(--tt-primary);border-radius:100px;font-size:12.5px;font-weight:500;cursor:pointer;transition:all .18s;font-family:'DM Sans',sans-serif;line-height:1.3}
+        .tt-qr:hover{background:var(--tt-primary);color:white;box-shadow:0 3px 10px rgba(var(--tt-primary-rgb),.25)}
         .tt-qr:disabled{opacity:.36;cursor:default;pointer-events:none}
         .tt-qr.red{border-color:#dc2626;color:#dc2626}.tt-qr.red:hover{background:#dc2626;color:white}
         .tt-qr.grey{border-color:#8e8e93;color:#8e8e93}.tt-qr.grey:hover{background:#8e8e93;color:white}
@@ -323,57 +351,57 @@
         .tt-otpcard{background:white;border:1px solid #e5e5ea;border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
         .tt-otpcard label{display:block;font-size:11px;font-weight:700;color:#8e8e93;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
         .tt-otpcard input{width:100%;border:1.5px solid #e5e5ea;border-radius:10px;padding:10px 13px;font-size:13.5px;font-family:'DM Sans',sans-serif;outline:none;transition:all .2s;background:#fafafa}
-        .tt-otpcard input:focus{border-color:#3AB54A;background:white;box-shadow:0 0 0 3px rgba(58,181,74,.1)}
+        .tt-otpcard input:focus{border-color:var(--tt-primary);background:white;box-shadow:0 0 0 3px rgba(var(--tt-primary-rgb),.1)}
         .tt-otpcard .tt-hint{font-size:11px;color:#8e8e93;margin:6px 0 12px;line-height:1.4}
 
         /* OTP DIGIT INPUT */
         .tt-otp-digits{display:flex;gap:8px;margin:10px 0}
         .tt-otp-digit{width:40px;height:48px;border:1.5px solid #e5e5ea;border-radius:10px;text-align:center;font-size:22px;font-family:'Syne',sans-serif;font-weight:700;color:#1c1c1e;outline:none;transition:all .2s;background:#fafafa;-moz-appearance:textfield}
         .tt-otp-digit::-webkit-outer-spin-button,.tt-otp-digit::-webkit-inner-spin-button{-webkit-appearance:none}
-        .tt-otp-digit:focus{border-color:#3AB54A;background:white;box-shadow:0 0 0 3px rgba(58,181,74,.12)}
-        .tt-otp-digit.filled{border-color:#3AB54A;background:#f0faf1;color:#2a8f38}
+        .tt-otp-digit:focus{border-color:var(--tt-primary);background:white;box-shadow:0 0 0 3px rgba(var(--tt-primary-rgb),.12)}
+        .tt-otp-digit.filled{border-color:var(--tt-primary);background:#f0faf1;color:var(--tt-primary-dark)}
         .tt-otp-digit.error{border-color:#dc2626;background:#fef2f2;animation:ttShake .4s ease}
         @@keyframes ttShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 
         .tt-btns{display:flex;gap:8px;margin-top:4px}
-        .tt-btn-primary{flex:1;padding:10px;background:linear-gradient(135deg,#3AB54A,#2fa843);color:white;border:none;border-radius:10px;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;transition:all .2s;letter-spacing:.3px}
-        .tt-btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(58,181,74,.35)}
+        .tt-btn-primary{flex:1;padding:10px;background:linear-gradient(135deg,var(--tt-primary),var(--tt-gradient-mid));color:white;border:none;border-radius:10px;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;transition:all .2s;letter-spacing:.3px}
+        .tt-btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(var(--tt-primary-rgb),.35)}
         .tt-btn-primary:disabled{opacity:.5;cursor:default;transform:none;box-shadow:none}
         .tt-btn-ghost{padding:10px 14px;background:white;color:#8e8e93;border:1.5px solid #e5e5ea;border-radius:10px;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;white-space:nowrap}
         .tt-btn-ghost:hover{border-color:#8e8e93;color:#48484a}
 
         /* RESEND TIMER */
         .tt-resend{font-size:11px;color:#8e8e93;text-align:center;margin-top:8px}
-        .tt-resend a{color:#3AB54A;cursor:pointer;font-weight:600;text-decoration:none}
+        .tt-resend a{color:var(--tt-primary);cursor:pointer;font-weight:600;text-decoration:none}
         .tt-resend a:hover{text-decoration:underline}
 
         /* SUMMARY */
         .tt-sum{background:white;border:1px solid #e5e5ea;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-        .tt-sum-t{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#3AB54A;margin-bottom:8px}
+        .tt-sum-t{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--tt-primary);margin-bottom:8px}
         .tt-sr{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f5f5f7}
         .tt-sr:last-child{border-bottom:none;padding-top:7px}
         .tt-sk{color:#8e8e93;font-size:12px}.tt-sv{color:#1c1c1e;font-weight:600;font-size:12px;text-align:right;max-width:200px}
         .tt-svcs{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
-        .tt-svc{background:#e8f7ea;color:#2a8f38;font-size:10px;font-weight:700;padding:3px 9px;border-radius:100px}
+        .tt-svc{background:#e8f7ea;color:var(--tt-primary-dark);font-size:10px;font-weight:700;padding:3px 9px;border-radius:100px}
 
         /* VERIFY CARD (identity) */
         .tt-vcard{background:white;border:1px solid #e5e5ea;border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
         .tt-vcard label{display:block;font-size:11px;font-weight:700;color:#8e8e93;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
         .tt-vcard input{width:100%;border:1.5px solid #e5e5ea;border-radius:10px;padding:10px 13px;font-size:13px;font-family:'DM Sans',sans-serif;outline:none;transition:all .2s;background:#fafafa}
-        .tt-vcard input:focus{border-color:#3AB54A;background:white;box-shadow:0 0 0 3px rgba(58,181,74,.1)}
+        .tt-vcard input:focus{border-color:var(--tt-primary);background:white;box-shadow:0 0 0 3px rgba(var(--tt-primary-rgb),.1)}
         .tt-vhint{font-size:11px;color:#8e8e93;margin:5px 0 12px;font-style:italic;line-height:1.4}
 
         /* SECURE BADGE */
         .tt-secure{display:flex;align-items:center;gap:5px;font-size:10.5px;color:#8e8e93;background:#f5f5f7;border-radius:8px;padding:6px 10px;margin-top:8px}
-        .tt-secure svg{flex-shrink:0;color:#3AB54A}
+        .tt-secure svg{flex-shrink:0;color:var(--tt-primary)}
 
         /* INPUT AREA */
         .tt-ia{padding:10px 14px 12px;border-top:1px solid #e8e8ed;display:flex;gap:8px;align-items:center;flex-shrink:0;background:white}
         #tt-inp{flex:1;border:1.5px solid #e5e5ea;border-radius:100px;padding:10px 16px;font-size:13.5px;font-family:'DM Sans',sans-serif;outline:none;transition:all .2s;background:#f5f5f7;color:#1c1c1e}
-        #tt-inp:focus{border-color:#3AB54A;background:white;box-shadow:0 0 0 3px rgba(58,181,74,.08)}
+        #tt-inp:focus{border-color:var(--tt-primary);background:white;box-shadow:0 0 0 3px rgba(var(--tt-primary-rgb),.08)}
         #tt-inp::placeholder{color:#b0b0ba}
-        #tt-snd{width:40px;height:40px;background:linear-gradient(135deg,#3AB54A,#2fa843);border:none;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0;box-shadow:0 3px 10px rgba(58,181,74,.3)}
-        #tt-snd:hover{transform:scale(1.08);box-shadow:0 5px 16px rgba(58,181,74,.4)}
+        #tt-snd{width:40px;height:40px;background:linear-gradient(135deg,var(--tt-primary),var(--tt-gradient-mid));border:none;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0;box-shadow:0 3px 10px rgba(var(--tt-primary-rgb),.3)}
+        #tt-snd:hover{transform:scale(1.08);box-shadow:0 5px 16px rgba(var(--tt-primary-rgb),.4)}
         #tt-snd svg{color:white}
         .tt-foot{text-align:center;font-size:10px;color:#b0b0ba;padding:0 16px 10px;flex-shrink:0}
 
@@ -448,8 +476,8 @@
 
         /* STATE */
         let isOpen=false,started=false;
-        let state='welcome'; // welcome→lookup→lookup_pc→otp_email→otp_sending→otp_verify→fetching→action→verify→processing→instructions→done
-        let order=null,action=null,pRef=null,pPc=null,otpEmail=null,otpAttempts=0,resendTimer=null;
+        let state='welcome'; // welcome→lookup→lookup_pc→otp_choice→otp_email|otp_phone→otp_sending→otp_verify→fetching→action→verify→processing→instructions→done
+        let order=null,action=null,pRef=null,pPc=null,otpEmail=null,otpType='email',otpIdentifier=null,otpAttempts=0,resendTimer=null;
 
         const win2=document.getElementById('tt-win');
         const msgs=document.getElementById('tt-msgs');
@@ -530,7 +558,9 @@
           userMsg(val);
           if(state==='lookup')s1(val);
           else if(state==='lookup_pc')s2(val);
+          else if(state==='otp_choice')botMsg("Please choose <strong>Email</strong> or <strong>Phone</strong> above to receive your code.");
           else if(state==='otp_email')sOtpEmail(val);
+          else if(state==='otp_phone')sOtpPhone(val);
           else if(state==='otp_verify')sOtpVerify(val);
           else if(state==='verify')doVerify(val);
           else if(state==='instructions')doInstr(val);
@@ -550,19 +580,34 @@
         async function s2(val){
           pPc=val.toUpperCase().trim();
           setStep('otp');
-          state='otp_email';
-          await botMsg(`Thanks! 🔒 To protect your order data, we need to verify your identity.<br><br>Please enter the <strong>email address</strong> linked to your order, and we'll send you a 6-digit code.`);
+          state='otp_choice';
+          await botMsg(`Thanks! 🔒 To protect your order data, we need to verify your identity.<br><br>How would you like to receive your 6-digit code?`);
+          await qrs([
+            {label:'📧 Email',fn:()=>{otpType='email';state='otp_email';botMsg("Please enter the <strong>email address</strong> linked to your order, and we'll send you a 6-digit code.");}},
+            {label:'📱 Phone',fn:()=>{otpType='phone';state='otp_phone';botMsg("Please enter the <strong>mobile number</strong> linked to your order, and we'll send you a 6-digit code by SMS.");}}
+          ],400);
         }
 
         /* STEP 3a — Collect email */
         async function sOtpEmail(val){
-          // Basic email validation
           const emailRe=/^[^\s@@]+@@[^\s@@]+\.[^\s@@]+$/;
           if(!emailRe.test(val)){
             await botMsg("That doesn't look like a valid email address. Please try again.");
             return;
           }
           otpEmail=val.toLowerCase().trim();
+          otpIdentifier=otpEmail;
+          await sendOtpFlow();
+        }
+
+        /* STEP 3a — Collect phone */
+        async function sOtpPhone(val){
+          const digits=(val||'').replace(/\D/g,'');
+          if(digits.length<10){
+            await botMsg("Please enter a valid mobile number (at least 10 digits).");
+            return;
+          }
+          otpIdentifier=val.trim();
           await sendOtpFlow();
         }
 
@@ -571,17 +616,19 @@
           state='otp_sending';
           const ldr=ldrMsg('Sending verification code…');
           try{
-            await API.sendOtp(otpEmail);
+            await API.sendOtp(otpType,otpIdentifier);
             ldr.remove();
             otpAttempts=0;
             state='otp_verify';
-            await botMsg(`✅ A 6-digit code has been sent to <strong>${maskEmail(otpEmail)}</strong>.<br><br>Please enter the code below. It expires in <strong>5 minutes</strong>.`+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo code: 123456</em>`:''));
+            const masked=otpType==='email'?maskEmail(otpIdentifier):maskPhone(otpIdentifier);
+            await botMsg(`✅ A 6-digit code has been sent to <strong>${masked}</strong>.<br><br>Please enter the code below. It expires in <strong>5 minutes</strong>.`+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo code: 123456</em>`:''));
             showOtpInput();
           }catch(e){
             ldr.remove();
-            await botMsg("❌ Failed to send the verification code. Please check your email and try again.");
+            const channel=otpType==='email'?'email':'phone';
+            await botMsg(`❌ Failed to send the verification code. Please check your ${channel} and try again.`);
             qrs([
-              {label:'🔄 Try Again',fn:()=>{userMsg('Try again');state='otp_email';botMsg("Please enter your <strong>email address</strong> again:");}},
+              {label:'🔄 Try Again',fn:()=>{userMsg('Try again');state=otpType==='email'?'otp_email':'otp_phone';botMsg(otpType==='email'?"Please enter your <strong>email address</strong> again:":"Please enter your <strong>mobile number</strong> again:");}},
               {label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}
             ],400);
           }
@@ -606,7 +653,7 @@
                 </div>
                 <div class="tt-secure">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  Code sent to ${maskEmail(otpEmail)}
+                  Code sent to ${otpType==='email'?maskEmail(otpIdentifier):maskPhone(otpIdentifier)}
                 </div>
                 <div class="tt-btns" style="margin-top:12px">
                   <button class="tt-btn-primary" id="otp-submit" onclick="window._ttOtpSubmit()">Verify Code →</button>
@@ -671,7 +718,7 @@
           const btn=document.getElementById('otp-resend-btn');
           if(btn){btn.style.pointerEvents='none';btn.textContent='Sending…';}
           try{
-            await API.sendOtp(otpEmail);
+            await API.sendOtp(otpType,otpIdentifier);
             if(btn){btn.textContent='Resend';}
             startResendTimer(60);
             const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
@@ -711,7 +758,7 @@
           state='otp_checking';
           const ldr=ldrMsg('Verifying code…');
           try{
-            await API.verifyOtp(otpEmail,code);
+            await API.verifyOtp(otpType,otpIdentifier,code);
             ldr.remove();
             clearInterval(resendTimer);
             setStep('order');
@@ -758,6 +805,7 @@
           const isDel=o.order_steps.delivered==='Yes';
           const isOut=o.order_steps.routed==='Yes'&&!isDel;
           const isCon=o.confirmed==='True';
+          const hasDeliveryDate=!(o.planned_date==='N/A'||!o.planned_date||String(o.planned_date).trim()==='')&&!(o.planned_slot?.start==='TBC'||o.planned_slot?.start==='N/A');
 
           if(isDel){
             await botMsg("✅ This order has already been <strong>delivered</strong>.",0);
@@ -772,21 +820,22 @@
           }
 
           const btns=[];
-          if(!isOut&&!isCon)btns.push({label:'✅ Confirm Delivery',fn:()=>pickAction('confirm')});
-          if(opts.allow_cancel_request==='True'&&!isOut)btns.push({label:'❌ Decline Delivery',fn:()=>pickAction('decline'),cls:'red'});
+          if(hasDeliveryDate&&!isOut&&!isCon)btns.push({label:'✅ Confirm Delivery',fn:()=>pickAction('confirm')});
+          if(hasDeliveryDate&&opts.allow_cancel_request==='True'&&!isOut)btns.push({label:'❌ Decline Delivery',fn:()=>pickAction('decline'),cls:'red'});
           if(opts.allow_service_request==='True')btns.push({label:'📝 Add Instructions',fn:()=>pickAction('instructions')});
           btns.push({label:'👋 No Action Needed',fn:()=>pickAction('none'),cls:'grey'});
           btns.push({label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}});
           qrs(btns);
         }
 
-        /* PICK ACTION */
         async function pickAction(a){
           action=a;
           const lbl={confirm:'Confirm Delivery',decline:'Decline Delivery',instructions:'Add Instructions',none:'No action needed'};
           userMsg(lbl[a]);
           if(a==='none'){
-            await botMsg(`No problem! Your delivery is booked for <strong>${fmtDate(order.planned_date)}</strong>, ${fmtSlot(order.planned_slot)}. 🚚`);
+            const hasDate=!(order.planned_date==='N/A'||!order.planned_date||String(order.planned_date).trim()==='')&&!(order.planned_slot?.start==='TBC'||order.planned_slot?.start==='N/A');
+            if(hasDate)await botMsg(`No problem! Your delivery is booked for <strong>${fmtDate(order.planned_date)}</strong>, ${fmtSlot(order.planned_slot)}. 🚚`);
+            else await botMsg(`No problem! No delivery date is set yet. You can add instructions or choose a preferred day above — we'll be in touch. 🚚`);
             offerNext(600);return;
           }
           state='verify';
@@ -857,8 +906,9 @@
               await addEl(el,250);await addEl(buildSum('decline','Declined — team notified'),250);
             }else if(action==='instructions'){
               ldr.remove();state='instructions';
-              await botMsg('Please type your delivery instructions below 📝<br><em style="font-size:11px;color:#999">e.g. "Leave in garage", "Ring bell twice"</em>');
-              qrs([{label:'✕ Cancel',fn:()=>{dQR();userMsg('Cancel');cancelFlow();},cls:'grey'}],400);
+              const weekOpts=getNextWeekdayOptions();
+              await botMsg('Please type your delivery instructions below 📝 or choose a <strong>preferred delivery day</strong> (not guaranteed — we will be in touch):');
+              qrs([...weekOpts.map(o=>({label:o.label,fn:()=>{dQR();userMsg(o.label);doInstr(o.instruction);}})),{label:'✕ Cancel',fn:()=>{dQR();userMsg('Cancel');cancelFlow();},cls:'grey'}],400);
               return;
             }
             offerNext(550);
@@ -873,7 +923,7 @@
             await API.updateInstructions(ref,val);
             await API.addNote(ref,`Instructions via TrackIT: "${val}" — ${new Date().toLocaleString('en-GB')}`);
             ldr.remove();state='done';
-            await botMsg(`✅ <strong>Instructions Saved!</strong><br><blockquote style="border-left:3px solid #3AB54A;padding-left:10px;margin:7px 0;font-style:italic">"${xe(val)}"</blockquote>Our crew will see this before arrival.`);
+            await botMsg(`✅ <strong>Instructions Saved!</strong><br><blockquote style="border-left:3px solid var(--tt-primary);padding-left:10px;margin:7px 0;font-style:italic">"${xe(val)}"</blockquote>Our crew will see this before arrival.`);
             await addEl(buildSum('instructions',val),350);
             offerNext(500);
           }catch(e){ldr.remove();await showErr(e,'action');}
@@ -932,7 +982,7 @@
         }
 
         function resetLookup(){
-          order=null;action=null;pRef=null;pPc=null;otpEmail=null;otpAttempts=0;
+          order=null;action=null;pRef=null;pPc=null;otpEmail=null;otpType='email';otpIdentifier=null;otpAttempts=0;
           clearInterval(resendTimer);
           state='lookup';setStep('ref');
           botMsg("Please enter your <strong>consignment number</strong> to start:");
@@ -956,7 +1006,7 @@
           const prods=(o.products||[]).slice(0,2).map(p=>`<div class="tt-dr"><span class="tt-dk">${xe(p.part)}</span><span class="tt-dv">${xe(p.description)}</span></div>`).join('');
           const svcs=[o.services?.service_level,o.services?.delivery_point].filter(v=>v&&v!=='N/A');
           const svcHTML=svcs.length?`<div class="tt-svcs">${svcs.map(s=>`<span class="tt-svc">${xe(s)}</span>`).join('')}</div>`:'';
-          const cb=o.confirmed==='True'?`<span style="font-size:10px;color:#2a8f38;font-weight:700;margin-left:6px">✓ Confirmed</span>`:'';
+          const cb=o.confirmed==='True'?`<span style="font-size:10px;color:var(--tt-primary-dark);font-weight:700;margin-left:6px">✓ Confirmed</span>`:'';
           const el=document.createElement('div');el.className='tt-row b';
           el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent">
             <div class="tt-card">

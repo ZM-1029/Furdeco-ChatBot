@@ -15,7 +15,7 @@
  *       position:    'bottom-right',        // 'bottom-right' | 'bottom-left'
  *       offsetX:     28,                    // px from edge
  *       offsetY:     28,                    // px from bottom
- *       buttonColor: '#3AB54A',             // any CSS hex colour
+ *       buttonColor: '#3AB54A',             // Furdeco brand primary — see brand guidelines PDF
  *       buttonLabel: 'TrackIT',             // text under icon
  *       badgeCount:  1,                     // red dot number (0 = hide)
  *       greeting:    'Track your delivery', // hover tooltip text
@@ -61,8 +61,8 @@
     var POSITION = cfg.position || 'bottom-right';
     var OFFSET_X = cfg.offsetX != null ? cfg.offsetX : 28;
     var OFFSET_Y = cfg.offsetY != null ? cfg.offsetY : 28;
-    var BTN_COLOR = cfg.buttonColor || '#3AB54A';
-    var BTN_LABEL = cfg.buttonLabel || 'TrackIT';
+    var BTN_COLOR = cfg.buttonColor || '#3AB54A';  /* Furdeco brand primary */
+    var BTN_LABEL = cfg.buttonLabel || 'Ask Frankie';
     var BADGE = cfg.badgeCount != null ? cfg.badgeCount : 1;
     var GREETING = cfg.greeting || 'Track your delivery \uD83D\uDCE6';
     var Z = cfg.zIndex || 999999;
@@ -140,7 +140,7 @@
     /* iframe */
     var iframe = document.createElement('iframe');
     iframe.id = 'trackit-iframe';
-    iframe.title = 'TrackIT Delivery Assistant';
+    iframe.title = 'Ask Frankie Delivery Assistant';
     iframe.setAttribute('allow', 'clipboard-write');
     var iframeReady = false;
     var iframeSrcSet = false; /* track if src was assigned — iframe.src is 'about:blank' by default (truthy) so we can't rely on !iframe.src */
@@ -167,7 +167,7 @@
     /* Button */
     var btn = document.createElement('button');
     btn.id = 'trackit-btn';
-    btn.setAttribute('aria-label', 'Open TrackIT delivery assistant');
+    btn.setAttribute('aria-label', 'Open Ask Frankie delivery assistant');
     btn.setAttribute('aria-expanded', 'false');
     btn.innerHTML =
         '<svg class="ti-chat" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">' +

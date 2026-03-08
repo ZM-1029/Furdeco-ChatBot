@@ -1,0 +1,17 @@
+/**
+ * Furdeco brand colour palette
+ * Update these from: furdeco_brand_guidelines_v1-2_2023_draft.pdf
+ * Used by: ChatPage/Index.cshtml, Home/Index.cshtml, embed.js
+ */
+:root {
+  /* Primary green — main brand colour */
+  --furdeco-primary: #3AB54A;
+  --furdeco-primary-dark: #2a8f38;
+  --furdeco-primary-light: #4fd45f;
+  --furdeco-primary-gradient-mid: #2fa843;
+  --furdeco-header-start: #1e7a2b;
+  /* RGB for shadows (58, 181, 74 = #3AB54A) */
+  --furdeco-primary-r: 58;
+  --furdeco-primary-g: 181;
+  --furdeco-primary-b: 74;
+}

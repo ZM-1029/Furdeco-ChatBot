@@ -1,8 +1,8 @@
 using Furdeco_ChatBot.Service;
-using static System.Collections.Specialized.BitVector32;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IOtpService, OtpService>();
+builder.Services.AddHttpClient<IVoodooSmsService, VoodooSmsService>();
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddHttpClient();

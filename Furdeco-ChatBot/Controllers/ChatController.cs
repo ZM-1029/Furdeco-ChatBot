@@ -1,7 +1,8 @@
-﻿using Furdeco_ChatBot.Service;
+using Furdeco_ChatBot.Service;
 using Microsoft.AspNetCore.Mvc;
 using System.Net;
 using System.Net.Mail;
+using System.Text.RegularExpressions;
 
 [Route("api/chat")]
 [ApiController]
@@ -10,12 +11,14 @@ public class ChatController : ControllerBase
     private readonly IHttpClientFactory _factory;
     private readonly IConfiguration _config;
     private readonly IOtpService _otpService;
+    private readonly IVoodooSmsService _voodooSmsService;
 
-    public ChatController(IHttpClientFactory factory, IConfiguration config, IOtpService otpService)
+    public ChatController(IHttpClientFactory factory, IConfiguration config, IOtpService otpService, IVoodooSmsService voodooSmsService)
     {
         _factory = factory;
         _config = config;
         _otpService = otpService;
+        _voodooSmsService = voodooSmsService;
     }
 
     private string BaseUrl => _config["GSIT:BaseUrl"];
@@ -81,20 +84,46 @@ public class ChatController : ControllerBase
     [HttpPost("send-otp")]
     public async Task<IActionResult> SendOtp([FromBody] SendOtpRequest request)
     {
-        if (string.IsNullOrEmpty(request.Email))
-            return BadRequest(new { error = "Email required" });
+        string? identifier;
+        bool isPhone = string.Equals(request.Type, "phone", StringComparison.OrdinalIgnoreCase);
 
-        var otp = _otpService.GenerateOtp(request.Email);
-
-        try
+        if (isPhone)
         {
-            await SendOtpEmail(request.Email, otp);
+            if (string.IsNullOrWhiteSpace(request.Phone))
+                return BadRequest(new { error = "Phone required" });
+            identifier = NormalizePhone(request.Phone);
+            if (string.IsNullOrEmpty(identifier))
+                return BadRequest(new { error = "Invalid phone number" });
         }
-        catch (Exception ex)
+        else
         {
-            Console.WriteLine($"[OTP Email Error] {ex.Message}");
-            // Log but don't fail — console fallback for dev
-            Console.WriteLine($"[DEV] OTP for {request.Email}: {otp}");
+            if (string.IsNullOrWhiteSpace(request.Email))
+                return BadRequest(new { error = "Email required" });
+            identifier = request.Email.Trim();
+        }
+
+        var otp = _otpService.GenerateOtp(identifier);
+
+        if (isPhone)
+        {
+            var sent = await _voodooSmsService.SendAsync(identifier, $"Your Ask Frankie verification code is: {otp}. It expires in 5 minutes.");
+            if (!sent)
+            {
+                Console.WriteLine($"[OTP SMS Error] Failed to send to {identifier}");
+                Console.WriteLine($"[DEV] OTP for {identifier}: {otp}");
+            }
+        }
+        else
+        {
+            try
+            {
+                await SendOtpEmail(identifier, otp);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[OTP Email Error] {ex.Message}");
+                Console.WriteLine($"[DEV] OTP for {identifier}: {otp}");
+            }
         }
 
         return Ok(new { message = "OTP sent successfully" });
@@ -104,15 +133,35 @@ public class ChatController : ControllerBase
     [HttpPost("verify-otp")]
     public IActionResult VerifyOtp([FromBody] VerifyOtpRequest request)
     {
-        if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Otp))
-            return BadRequest(new { error = "Email and OTP required" });
+        if (string.IsNullOrEmpty(request.Otp))
+            return BadRequest(new { error = "OTP required" });
 
-        var valid = _otpService.VerifyOtp(request.Email, request.Otp);
+        string? identifier = null;
+        if (!string.IsNullOrWhiteSpace(request.Phone))
+            identifier = NormalizePhone(request.Phone);
+        if (string.IsNullOrEmpty(identifier) && !string.IsNullOrWhiteSpace(request.Email))
+            identifier = request.Email.Trim();
+
+        if (string.IsNullOrEmpty(identifier))
+            return BadRequest(new { error = "Email or Phone required" });
+
+        var valid = _otpService.VerifyOtp(identifier, request.Otp);
 
         if (!valid)
             return BadRequest(new { error = "Invalid or expired OTP" });
 
         return Ok(new { message = "OTP verified" });
+    }
+
+    private static string? NormalizePhone(string phone)
+    {
+        var digits = Regex.Replace(phone, @"\D", "");
+        if (string.IsNullOrEmpty(digits)) return null;
+        if (digits.StartsWith("0") && digits.Length >= 10)
+            return "44" + digits.TrimStart('0');
+        if (digits.Length == 10 && !digits.StartsWith("44"))
+            return "44" + digits;
+        return digits;
     }
     private async Task SendOtpEmail(string toEmail, string otp)
     {
@@ -129,8 +178,8 @@ public class ChatController : ControllerBase
 
         var mail = new MailMessage
         {
-            From = new MailAddress(username, "TrackIT by Furdeco"),
-            Subject = "Your TrackIT Verification Code",
+            From = new MailAddress(username, "Ask Frankie by Furdeco"),
+            Subject = "Your Ask Frankie Verification Code",
             IsBodyHtml = true,
             Body = $@"
                     <!DOCTYPE html>
@@ -143,7 +192,7 @@ public class ChatController : ControllerBase
                             <tr>
                               <td style='background:linear-gradient(135deg,#2a8f38,#3AB54A);padding:32px 40px;text-align:center'>
                                 <div style='font-size:32px;margin-bottom:8px'>🚚</div>
-                                <div style='font-family:""Syne"",Arial,sans-serif;font-size:22px;font-weight:800;color:white'>TrackIT by Furdeco</div>
+                                <div style='font-family:""Syne"",Arial,sans-serif;font-size:22px;font-weight:800;color:white'>Ask Frankie by Furdeco</div>
                                 <div style='font-size:13px;color:rgba(255,255,255,0.8);margin-top:4px'>Secure Delivery Portal</div>
                               </td>
                             </tr>
@@ -174,20 +223,23 @@ public class ChatController : ControllerBase
         {
             await client.SendMailAsync(mail);
         }
-        catch (Exception e)
-        { 
-
+        catch (Exception)
+        {
+            // Logged by caller
         }
     }
 }
 
 public class SendOtpRequest
 {
-    public string Email { get; set; } = null!;
+    public string? Type { get; set; }
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
 }
 
 public class VerifyOtpRequest
 {
-    public string Email { get; set; } = null!;
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
     public string Otp { get; set; } = null!;
 }
