@@ -64,7 +64,7 @@ public class ChatController : ControllerBase
     public async Task<IActionResult> UpdateInstructions([FromForm] string reference, [FromForm] string instructions)
     {
         return await UpdateOrder(reference, "update_field",
-                        new Dictionary<string, string> { { "DeliveryInstructions", instructions } });
+                        new Dictionary<string, string> { { "CrewInstructions", instructions } });
 
        // new Dictionary<string, string> { { "OtherInstructions", instructions } });
     }

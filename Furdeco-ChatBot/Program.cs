@@ -45,11 +45,14 @@ app.UseRouting();
 
 app.UseAuthorization();
 
+// API routes must be matched first — default route would otherwise match /api/chat/track as controller=api, action=chat
+app.MapControllers();
 app.MapControllerRoute("chat", "chat", new { controller = "ChatPage", action = "Index" });
 
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=ChatPage}/{action=Index}/{id?}");
+    pattern: "{controller=ChatPage}/{action=Index}/{id?}",
+    constraints: new { controller = new Microsoft.AspNetCore.Routing.Constraints.RegexRouteConstraint("^(?!api$).*") });
 
 app.Run();
 

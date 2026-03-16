@@ -392,7 +392,7 @@ document.body.innerHTML = `
 <div id="tt-msgs"></div>
 <div class="tt-ia">
   <input type="text" id="tt-inp" placeholder="Type a message…" autocomplete="off">
-  <button id="tt-snd" aria-label="Send">
+  <button type="button" id="tt-snd" aria-label="Send">
     <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
       <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
     </svg>
@@ -482,7 +482,12 @@ async function sOtpEmail(val){
   const entered=val.toLowerCase().trim().replace(/@@/g,'@@');
   const onOrder=(order?.email||'').toLowerCase().trim().replace(/@@/g,'@@');
   if(!onOrder||onOrder==='n/a'||entered!==onOrder){
-    await botMsg("❌ That email is not registered with this order. Please enter the correct email address linked to your delivery.");
+    await botMsg("❌ That email is not registered with this order. How would you like to try again?");
+    state='otp_choice';
+    await qrs([
+      {label:'📧 Email',fn:()=>{otpType='email';state='otp_email';botMsg("Enter the <strong>email address</strong> linked to your order.");}},
+      {label:'📱 Phone',fn:()=>{otpType='phone';state='otp_phone';botMsg("Enter the <strong>mobile number</strong> linked to your order (we'll send the code by SMS).");}}
+    ],400);
     return;
   }
   otpEmail=val.toLowerCase().trim();
@@ -505,7 +510,12 @@ async function sOtpPhone(val){
     await botMsg("Please enter a valid mobile number (at least 10 digits).");return;
   }
   if(!verifyIdentity(val,order)){
-    await botMsg("❌ That number is not registered with this order. Please enter the mobile number linked to your delivery.");
+    await botMsg("❌ That number is not registered with this order. How would you like to try again?");
+    state='otp_choice';
+    await qrs([
+      {label:'📧 Email',fn:()=>{otpType='email';state='otp_email';botMsg("Enter the <strong>email address</strong> linked to your order.");}},
+      {label:'📱 Phone',fn:()=>{otpType='phone';state='otp_phone';botMsg("Enter the <strong>mobile number</strong> linked to your order (we'll send the code by SMS).");}}
+    ],400);
     return;
   }
   otpIdentifier=val.trim();
@@ -658,6 +668,7 @@ async function pickAction(a){
 }
 
 function showVerify(){
+  document.querySelectorAll('#tt-vi').forEach(e=>{const r=e.closest('.tt-row');if(r)r.remove();});
   const el=document.createElement('div');el.className='tt-row b';
   el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-vcard"><label>Mobile or Email</label><input type="text" id="tt-vi" placeholder="07700900000 or john@example.com" autocomplete="off"><p class="tt-vhint">Must match the details on your order.</p><div class="tt-btns"><button class="tt-btn-primary" onclick="window._ttV()">Confirm →</button><button class="tt-btn-ghost" onclick="window._ttX()">Cancel</button></div></div></div>`;
   msgs.appendChild(el);sd();setTimeout(()=>document.getElementById('tt-vi')?.focus(),300);
@@ -734,8 +745,12 @@ function buildSum(a,detail){
   return el;
 }
 
-document.getElementById('tt-snd').onclick=handleInput;
-document.getElementById('tt-inp').addEventListener('keydown',e=>{if(e.key==='Enter')handleInput();});
+(function attachSend(){
+  const btn=document.getElementById('tt-snd');
+  const inputEl=document.getElementById('tt-inp');
+  if(btn)btn.addEventListener('click',function(){handleInput();});
+  if(inputEl)inputEl.addEventListener('keydown',function(e){if(e.key==='Enter')handleInput();});
+})();
 </script>
 </body>
 </html>
