@@ -12,7 +12,6 @@ namespace Furdeco_ChatBot.Controllers
         {
             _logger = logger;
         }
-
         public IActionResult Index()
         {
             return View();

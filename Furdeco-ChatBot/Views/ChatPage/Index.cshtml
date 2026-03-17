@@ -659,12 +659,10 @@ async function pickAction(a){
     else await botMsg(`No problem! No delivery date is set yet. You can add instructions or choose a preferred day above — we'll be in touch. 🚚`);
     offerNext(600);return;
   }
-  const hasMobileOrHome=(order.contact_mobile&&order.contact_mobile!=='N/A'&&String(order.contact_mobile).trim())||(order.contact_home&&order.contact_home!=='N/A'&&String(order.contact_home).trim());
-  const orderEmail=(order.email||'').toLowerCase().trim().replace(/@@/g,'@@');
-  const alreadyVerifiedByEmail=otpType==='email'&&otpIdentifier&&orderEmail&&otpIdentifier.toLowerCase().replace(/@@/g,'@@')===orderEmail;
-  const alreadyVerifiedByPhone=otpType==='phone'&&otpIdentifier&&verifyIdentity(otpIdentifier,order);
-  if(!hasMobileOrHome&&(alreadyVerifiedByEmail||alreadyVerifiedByPhone)){state='processing';await botMsg("✅ <strong>Confirmed!</strong> Processing…");setTimeout(performAction,700);return;}
-  state='verify';await botMsg("🔒 Please enter the <strong>mobile number or email</strong> on this order to confirm.");showVerify();
+  /* User has already verified at OTP step; do not re-verify for actions */
+  state='processing';
+  await botMsg("✅ <strong>Confirmed!</strong> Processing…");
+  setTimeout(performAction,700);
 }
 
 function showVerify(){
