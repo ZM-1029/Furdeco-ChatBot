@@ -806,7 +806,6 @@
 
           const opts=o.order_options;
           const isDel=o.order_steps.delivered==='Yes';
-          const isOut=o.order_steps.routed==='Yes'&&!isDel;
           const isCon=o.confirmed==='True';
           const hasDeliveryDate=!(o.planned_date==='N/A'||!o.planned_date||String(o.planned_date).trim()==='')&&!(o.planned_slot?.start==='TBC'||o.planned_slot?.start==='N/A');
 
@@ -816,15 +815,11 @@
             return;
           }
 
-          if(isOut){
-            const w=document.createElement('div');w.className='tt-row b';
-            w.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-warn">⚠️ Your order is <strong>out for delivery today</strong>. Confirm/Decline is unavailable at this stage.</div></div>`;
-            await addEl(w,300);
           }
 
           const btns=[];
-          if(hasDeliveryDate&&!isOut&&!isCon)btns.push({label:'✅ Confirm Delivery',fn:()=>pickAction('confirm')});
-          if(hasDeliveryDate&&opts.allow_cancel_request==='True'&&!isOut)btns.push({label:'❌ Decline Delivery',fn:()=>pickAction('decline'),cls:'red'});
+          if(hasDeliveryDate&&!isCon)btns.push({label:'✅ Confirm Delivery',fn:()=>pickAction('confirm')});
+          if(hasDeliveryDate&&opts.allow_cancel_request==='True')btns.push({label:'❌ Decline Delivery',fn:()=>pickAction('decline'),cls:'red'});
           if(opts.allow_service_request==='True')btns.push({label:'📝 Add Instructions',fn:()=>pickAction('instructions')});
           btns.push({label:'👋 No Action Needed',fn:()=>pickAction('none'),cls:'grey'});
           btns.push({label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}});
@@ -937,7 +932,7 @@
           state=ctx==='lookup'?'lookup':'action';
           let msg='';
           if(ctx==='lookup'&&(e.code==='NOT_FOUND'||e.code==='API')){
-            msg='We couldn\'t find an order with that consignment number and postcode. Please check the details and try again.';
+            msg='No matching consignment found. You recently received an email from Furdeco with regards to your order — you will find your consignment number on this email.';
             if(CONFIG.DEMO_MODE&&e.code==='NOT_FOUND')msg+=`<br><em style="font-size:11px;color:#999">Demo: try MD-DEMO-001 + DL1 1GL</em>`;
           }else if(e.code==='NOT_FOUND')msg=e.message+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo: try MD-DEMO-001 + DL1 1GL</em>`:'');
           else if(e.code==='TIMEOUT')msg='The request took too long. ⏱️ Please try again.';
