@@ -88,7 +88,7 @@
               if (!o) throw new Err('NOT_FOUND', `No order found for <strong>${xe(ref)}</strong> at <strong>${xe(pc)}</strong>.`);
               return JSON.parse(JSON.stringify(o));
             }
-            const url = `/api/chat/track?reference=${encodeURIComponent(ref)}&postcode=${encodeURIComponent(pc)}`;
+            const url = `/api/chat/track?reference=${encodeURIComponent(ref)}&postcode=${encodeURIComponent(pc)}&refType=${encodeURIComponent(refType||'consignment')}`;
             const r = await tf(url);
             return pTrk(await r.text());
           },
@@ -480,7 +480,7 @@
         /* STATE */
         let isOpen=false,started=false;
         let state='welcome'; // welcome→lookup→lookup_pc→otp_choice→otp_email|otp_phone→otp_sending→otp_verify→fetching→action→verify→processing→instructions→done
-        let order=null,action=null,pRef=null,pPc=null,otpEmail=null,otpType='email',otpIdentifier=null,otpAttempts=0,resendTimer=null;
+        let order=null,action=null,pRef=null,pPc=null,pRefType='consignment',otpEmail=null,otpType='email',otpIdentifier=null,otpAttempts=0,resendTimer=null;
 
         const win2=document.getElementById('tt-win');
         const msgs=document.getElementById('tt-msgs');
@@ -548,7 +548,11 @@
         async function startChat(){
           setStep('ref');
           state='lookup';
-          await botMsg(`Hi there! 👋 I'm <strong>TrackIT</strong>, Furdeco's secure delivery assistant.<br><br>To get started, please enter your <strong>consignment number</strong>.`+(CONFIG.DEMO_MODE?`<br><em style="font-size:11px;color:#999">Demo: try MD-DEMO-001</em>`:''));
+          await botMsg(`Hi there! 👋 I'm <strong>TrackIT</strong>, Furdeco's secure delivery assistant.<br><br>How would you like to track your order?`);
+          await qrs([
+            {label:'📦 Consignment Number',fn:()=>{pRefType='consignment';userMsg('Consignment Number');state='lookup';setStep('ref');botMsg('Got it! Please enter your <strong>consignment number</strong>.'+(CONFIG.DEMO_MODE?'<br><em style="font-size:11px;color:#999">Demo: MD-DEMO-001</em>':''));}},
+            {label:'🛒 Order Number',fn:()=>{pRefType='order';userMsg('Order Number');state='lookup';setStep('ref');botMsg('Got it! Please enter your <strong>order number</strong>.');}}
+          ]);
           inp.focus();
         }
 
@@ -792,7 +796,7 @@
           state='fetching';
           const ldr=ldrMsg(CONFIG.DEMO_MODE?'Loading demo order…':'Fetching order…');
           let o;
-          try{o=await API.getOrder(ref,pc);}
+          try{o=await API.getOrder(ref,pc,pRefType);}
           catch(e){ldr.remove();await showErr(e,'lookup');return;}
           ldr.remove();
           order=o;
@@ -815,6 +819,8 @@
             return;
           }
 
+            const w=document.createElement('div');w.className='tt-row b';
+            await addEl(w,300);
           }
 
           const btns=[];
@@ -986,7 +992,7 @@
           order=null;action=null;pRef=null;pPc=null;otpEmail=null;otpType='email';otpIdentifier=null;otpAttempts=0;
           clearInterval(resendTimer);
           state='lookup';setStep('ref');
-          botMsg("Please enter your <strong>consignment number</strong> to start:");
+          botMsg('How would you like to track your order?');qrs([{label:'📦 Consignment Number',fn:()=>{pRefType='consignment';userMsg('Consignment Number');state='lookup';setStep('ref');botMsg('Please enter your <strong>consignment number</strong>.');}},{label:'🛒 Order Number',fn:()=>{pRefType='order';userMsg('Order Number');state='lookup';setStep('ref');botMsg('Please enter your <strong>order number</strong>.');}}]);
         }
 
         async function goodbye(){

@@ -7,4 +7,10 @@
     <RootNamespace>Furdeco_ChatBot</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+  </ItemGroup>
+
 </Project>

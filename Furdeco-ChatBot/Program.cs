@@ -1,4 +1,5 @@
 using Furdeco_ChatBot.Service;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IOtpService, OtpService>();
@@ -19,7 +20,40 @@ builder.Services.AddCors(options =>
         });
 });
 
+var logPath = Path.Combine(builder.Environment.ContentRootPath, "Logs", "log-.txt");
+
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .WriteTo.Async(a => a.File(
+        path: logPath,
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 10,
+        fileSizeLimitBytes: 10_000_000,
+        rollOnFileSizeLimit: true,
+        shared: true
+    ))
+    .CreateLogger();
+
+// Replace default logger
+builder.Host.UseSerilog();
+
 var app = builder.Build();
+// Optional: global exception logging
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exceptionHandler = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var ex = exceptionHandler?.Error;
+
+        if (ex != null)
+        {
+            Log.Error(ex, "Unhandled exception");
+        }
+
+        context.Response.StatusCode = 500;
+    });
+});
 
 app.Use(async (context, next) =>
 {

@@ -1,5 +1,7 @@
+using Furdeco_ChatBot.Controllers;
 using Furdeco_ChatBot.Service;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Net.Mail;
 using System.Text.RegularExpressions;
@@ -13,13 +15,15 @@ public class ChatController : ControllerBase
     private readonly IConfiguration _config;
     private readonly IOtpService _otpService;
     private readonly IVoodooSmsService _voodooSmsService;
+    private readonly ILogger<ChatController> _logger;
 
-    public ChatController(IHttpClientFactory factory, IConfiguration config, IOtpService otpService, IVoodooSmsService voodooSmsService)
+    public ChatController(IHttpClientFactory factory, IConfiguration config, IOtpService otpService, IVoodooSmsService voodooSmsService, ILogger<ChatController> logger)
     {
         _factory = factory;
         _config = config;
         _otpService = otpService;
         _voodooSmsService = voodooSmsService;
+        _logger = logger;
     }
 
     private string BaseUrl => _config["GSIT:BaseUrl"];
@@ -27,10 +31,14 @@ public class ChatController : ControllerBase
 
     // TRACK
     [HttpGet("track")]
-    public async Task<IActionResult> Track(string reference, string postcode)
+    public async Task<IActionResult> Track(string reference, string postcode, string? refType = "consignment")
     {
         var client = _factory.CreateClient("GSIT");
-        var url = $"{BaseUrl}/_portal/api/_tracking/?key={ApiKey}&carrier_reference={reference}&postcode={postcode}";
+        var refParam = string.Equals(refType, "order", StringComparison.OrdinalIgnoreCase)
+            ? $"order_number={reference}"
+            : $"carrier_reference={reference}";
+        var url = $"{BaseUrl}/_portal/api/_tracking/?key={ApiKey}&{refParam}&postcode={postcode}";
+        _logger.LogInformation($"Tracking URL: {url} ");
         try
         {
             var response = await client.GetAsync(url);
@@ -60,15 +68,23 @@ public class ChatController : ControllerBase
     }
 
     // UPDATE INSTRUCTIONS
+   // [HttpPost("instructions")]
+   /* public async Task<IActionResult> UpdateInstructions([FromForm] string reference, [FromForm] string instructions)
+    {
+        *//*return await UpdateOrder(reference, "update_field",
+                        new Dictionary<string, string> { { "CrewInstructions", instructions } });*//*
+        return await UpdateOrder(reference, "add_deliveryinstructions",
+                        new Dictionary<string, string> { { "CrewInstructions", instructions } });
+
+        // new Dictionary<string, string> { { "OtherInstructions", instructions } });
+    }*/
+    // UPDATE INSTRUCTIONS
     [HttpPost("instructions")]
     public async Task<IActionResult> UpdateInstructions([FromForm] string reference, [FromForm] string instructions)
     {
-        return await UpdateOrder(reference, "update_field",
-                        new Dictionary<string, string> { { "CrewInstructions", instructions } });
-
-       // new Dictionary<string, string> { { "OtherInstructions", instructions } });
+        return await UpdateOrder(reference, "add_deliveryinstructions",
+                        new Dictionary<string, string> { { "Instructions", instructions } }, append: true);
     }
-
     // ADD NOTE
     [HttpPost("note")]
     public async Task<IActionResult> AddNote([FromForm] string reference, [FromForm] string note)
@@ -76,12 +92,12 @@ public class ChatController : ControllerBase
         return await UpdateOrder(reference, "add_note",
             new Dictionary<string, string> { { "Note", note } });
     }
-
     private async Task<IActionResult> UpdateOrder(string reference, string action,
-        Dictionary<string, string>? extra = null)
+        Dictionary<string, string>? extra = null, bool append = false)
     {
         var client = _factory.CreateClient("GSIT");
-        var url = $"{BaseUrl}/_portal/api/_orders/update/?key={ApiKey}&carrier_reference={reference}&action={action}";
+        var url = $"{BaseUrl}/_portal/api/_orders/update/?key={ApiKey}&carrier_reference={reference}&action={action}{(append ? "&append=true" : "")}";
+        _logger.LogInformation($"Updating order URL: {url} ");
         var content = extra != null
             ? new FormUrlEncodedContent(extra)
             : new FormUrlEncodedContent(new Dictionary<string, string>());
@@ -96,6 +112,45 @@ public class ChatController : ControllerBase
             return new ContentResult { Content = "<response><error>Request timed out. Please try again.</error></response>", ContentType = "application/xml", StatusCode = 504 };
         }
     }
+
+    /* private async Task<IActionResult> UpdateOrderNew(string reference, string action,
+       Dictionary<string, string>? extra = null)
+     {
+         var client = _factory.CreateClient("GSIT");
+         var url = $"{BaseUrl}/_portal/api/_orders/update/?key={ApiKey}&carrier_reference={reference}&action={action}&append=true";
+         var content = extra != null
+             ? new FormUrlEncodedContent(extra)
+             : new FormUrlEncodedContent(new Dictionary<string, string>());
+         try
+         {
+             var response = await client.PostAsync(url, content);
+             var result = await response.Content.ReadAsStringAsync();
+             return Content(result, "application/xml");
+         }
+         catch (TaskCanceledException)
+         {
+             return new ContentResult { Content = "<response><error>Request timed out. Please try again.</error></response>", ContentType = "application/xml", StatusCode = 504 };
+         }
+     }
+     private async Task<IActionResult> UpdateOrder(string reference, string action,
+         Dictionary<string, string>? extra = null)
+     {
+         var client = _factory.CreateClient("GSIT");
+         var url = $"{BaseUrl}/_portal/api/_orders/update/?key={ApiKey}&carrier_reference={reference}&action={action}";
+         var content = extra != null
+             ? new FormUrlEncodedContent(extra)
+             : new FormUrlEncodedContent(new Dictionary<string, string>());
+         try
+         {
+             var response = await client.PostAsync(url, content);
+             var result = await response.Content.ReadAsStringAsync();
+             return Content(result, "application/xml");
+         }
+         catch (TaskCanceledException)
+         {
+             return new ContentResult { Content = "<response><error>Request timed out. Please try again.</error></response>", ContentType = "application/xml", StatusCode = 504 };
+         }
+     }*/
 
     // STEP 1 - Send OTP
     [HttpPost("send-otp")]
