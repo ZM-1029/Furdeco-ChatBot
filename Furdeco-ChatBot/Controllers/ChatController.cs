@@ -92,6 +92,7 @@ public class ChatController : ControllerBase
         return await UpdateOrder(reference, "add_note",
             new Dictionary<string, string> { { "Note", note } });
     }
+
     private async Task<IActionResult> UpdateOrder(string reference, string action,
         Dictionary<string, string>? extra = null, bool append = false)
     {
@@ -300,6 +301,7 @@ public class ChatController : ControllerBase
             // Logged by caller
         }
     }
+
 }
 
 public class SendOtpRequest

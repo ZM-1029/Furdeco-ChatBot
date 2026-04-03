@@ -911,7 +911,7 @@
             }else if(action==='instructions'){
               ldr.remove();state='instructions';
               const weekOpts=getNextWeekdayOptions();
-              await botMsg('Please type your delivery instructions below 📝 or choose a <strong>preferred delivery day</strong> (not guaranteed — we will be in touch):');
+              await botMsg('Please type your delivery instructions below ');
               qrs([...weekOpts.map(o=>({label:o.label,fn:()=>{dQR();userMsg(o.label);doInstr(o.instruction);}})),{label:'✕ Cancel',fn:()=>{dQR();userMsg('Cancel');cancelFlow();},cls:'grey'}],400);
               return;
             }
