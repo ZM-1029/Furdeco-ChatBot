@@ -203,6 +203,26 @@
             order_options:{allow_cancel_request:gi('order_options','allow_cancel_request'),allow_service_request:gi('order_options','allow_service_request')},
             products:[...d.querySelectorAll('products > delivery > product')].map(p=>({description:p.querySelector('description')?.textContent?.trim()||'',part:p.querySelector('part')?.textContent?.trim()||''})),
             services:{service_level:gi('services','service_level'),delivery_point:gi('services','delivery_point')},
+            lat:gi('co-ordinates','latitude'), lng:gi('co-ordinates','longitude'),
+            route_info:(()=>{
+              const ri=d.querySelector('route_info');
+              const gri=t=>ri?.querySelector(t)?.textContent?.trim()||'N/A';
+              /* sorss_live_location has nested <latitude>/<longitude> child elements */
+              const sLat=ri?.querySelector('sorss_live_location > latitude')?.textContent?.trim()||'N/A';
+              const sLng=ri?.querySelector('sorss_live_location > longitude')?.textContent?.trim()||'N/A';
+              /* live_location (TomTom) also has nested children */
+              const tLat=ri?.querySelector('live_location > latitude')?.textContent?.trim()||'N/A';
+              const tLng=ri?.querySelector('live_location > longitude')?.textContent?.trim()||'N/A';
+              return{
+                registration:gri('registration'),
+                sorss_live_location:(sLat!=='N/A'&&sLng!=='N/A')?`${sLat},${sLng}`:'N/A',
+                live_location:(tLat!=='N/A'&&tLng!=='N/A')?`${tLat},${tLng}`:'N/A',
+                drops_current:ri?.querySelector('drops > current')?.textContent?.trim()||'N/A',
+                drops_total:ri?.querySelector('drops > total')?.textContent?.trim()||'N/A',
+                drops_order:ri?.querySelector('drops > order')?.textContent?.trim()||'N/A',
+                contact_number:gri('contact_number'),
+              };
+            })(),
           };
         }
 
@@ -546,8 +566,9 @@
         }
 
         function showOtpInput(){
-          // Remove any existing OTP widget so getElementById never picks up stale old inputs
-          document.querySelectorAll('.tt-row.b #otp-digits, [id="otp-widget"]').forEach(n=>n.closest('.tt-row')?n.closest('.tt-row').remove():n.remove());
+          // Nuke every previous OTP widget row from the DOM completely
+          document.querySelectorAll('#otp-widget').forEach(n=>{const r=n.closest('.tt-row');(r||n).remove();});
+          document.querySelectorAll('#otp-digits').forEach(n=>{const r=n.closest('.tt-row');(r||n).remove();});
           const el=document.createElement('div');el.className='tt-row b';el.id='otp-widget';
           el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent"><div class="tt-otpcard">
             <label>Verification Code</label>
@@ -575,28 +596,39 @@
 
         function startResendTimer(secs){
           clearInterval(resendTimer);
-          const timerEl=document.getElementById('otp-timer'),btn=document.getElementById('otp-resend-btn');
+          const widgets=[...document.querySelectorAll('#otp-widget')];
+          const widget=widgets[widgets.length-1];
+          const timerEl=widget?widget.querySelector('#otp-timer'):document.getElementById('otp-timer');
+          const btn=widget?widget.querySelector('#otp-resend-btn'):document.getElementById('otp-resend-btn');
           if(!timerEl||!btn)return;
           let s=secs;btn.style.pointerEvents='none';btn.style.opacity='.4';timerEl.textContent=`(${s}s)`;
           resendTimer=setInterval(()=>{s--;timerEl.textContent=s>0?`(${s}s)`:'';if(s<=0){clearInterval(resendTimer);btn.style.pointerEvents='';btn.style.opacity='';timerEl.textContent='';}},1000);
         }
 
         window._ttResend=async function(){
-          clearInterval(resendTimer);const btn=document.getElementById('otp-resend-btn');
+          clearInterval(resendTimer);
+          const widgets=[...document.querySelectorAll('#otp-widget')];
+          const widget=widgets[widgets.length-1];
+          const btn=widget?widget.querySelector('#otp-resend-btn'):document.getElementById('otp-resend-btn');
           if(btn){btn.style.pointerEvents='none';btn.textContent='Sending…';}
           try{
             await API.sendOtp(otpType,otpIdentifier);if(btn)btn.textContent='Resend';startResendTimer(60);
-            const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
+            const digits=widget?[...widget.querySelectorAll('.tt-otp-digit')]:[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
             digits.forEach(d=>{d.value='';d.classList.remove('filled','error');});digits[0]?.focus();
             await botMsg("📨 New code sent!",0);
           }catch(e){if(btn){btn.textContent='Resend';btn.style.pointerEvents='';}await botMsg("❌ Failed to resend. Try again.",0);}
         };
 
         window._ttOtpSubmit=function(){
-          const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
+          /* Always scope to the last (active) otp-widget — never stale old inputs */
+          const widgets=[...document.querySelectorAll('#otp-widget')];
+          const widget=widgets[widgets.length-1];
+          if(!widget)return;
+          const digits=[...widget.querySelectorAll('.tt-otp-digit')];
           const code=digits.map(d=>d.value).join('');if(code.length<6){digits.find(d=>!d.value)?.focus();return;}
-          digits.forEach(d=>d.disabled=true);document.getElementById('otp-submit').disabled=true;
-          document.querySelectorAll('.tt-btn-ghost').forEach(b=>b.disabled=true);
+          digits.forEach(d=>d.disabled=true);
+          widget.querySelector('#otp-submit').disabled=true;
+          widget.querySelectorAll('.tt-btn-ghost').forEach(b=>b.disabled=true);
           userMsg(code.slice(0,3)+'•••');sOtpVerify(code);
         };
 
@@ -630,7 +662,9 @@
         async function showOrder(){
           const o=order;const st=deriveStatus(o.order_steps);
           setStep('order');await botMsg(`📦 Here's your order for <strong>${xe(o.carrier_reference)}</strong>:`,400);
-          await addEl(buildCard(o,st),150);state='action';setStep('action');
+          await addEl(buildCard(o,st),150);
+          const mapEl=buildMap(o);if(mapEl)await addEl(mapEl,200);
+          state='action';setStep('action');
           const statusLower=(o.status||'').toLowerCase();
           const isOnHold=statusLower.includes('on hold');
           const isCancelled=statusLower.includes('cancel');
@@ -775,6 +809,117 @@
           else{dateDisplay=`🗓 ${fmtDate(o.planned_date)}${cb}`;}
           const el=document.createElement('div');el.className='tt-row b';
           el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent"><div class="tt-card"><div class="tt-ct">📦 Order Details</div><div class="tt-dr"><span class="tt-dk">Consignment</span><span class="tt-dv">${xe(o.carrier_reference)}</span></div><div class="tt-dr"><span class="tt-dk">Order No.</span><span class="tt-dv">${xe(o.order_number)}</span></div><div class="tt-dr"><span class="tt-dk">Retailer</span><span class="tt-dv">${xe(o.sender_company)}</span></div><div class="tt-dr"><span class="tt-dk">Recipient</span><span class="tt-dv">${xe(o.recipient)}</span></div><div class="tt-dr"><span class="tt-dk">Address</span><span class="tt-dv">${xe(o.address)}, ${xe(o.postcode)}</span></div>${prods}<div class="tt-dr" style="margin-top:4px"><span class="tt-dk">Date</span><span class="tt-dv">${dateDisplay}</span></div><div class="tt-dr"><span class="tt-dk">Slot</span><span class="tt-dv">🕐 ${fmtSlot(o.planned_slot)}</span></div><span class="tt-sb ${status.key}">${xe(status.label)}</span>${svcHTML}${trk}</div></div>`;
+          return el;
+        }
+
+        /* ── Haversine distance ─────────────────────────────── */
+        function haversineKm(lat1,lng1,lat2,lng2){
+          const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
+          const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+          return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+        }
+        function fmtDist(km){return km<1?`${Math.round(km*1000)} m away`:`${km.toFixed(1)} km away`;}
+
+        /* ── Inject Leaflet once ─────────────────────────── */
+        let _leafletReady=false,_leafletCallbacks=[];
+        function ensureLeaflet(cb){
+          if(_leafletReady){cb();return;}
+          _leafletCallbacks.push(cb);
+          if(_leafletCallbacks.length>1)return;
+          const css=document.createElement('link');css.rel='stylesheet';
+          css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          document.head.appendChild(css);
+          const js=document.createElement('script');
+          js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          js.onload=()=>{_leafletReady=true;_leafletCallbacks.forEach(f=>f());_leafletCallbacks=[];};
+          document.head.appendChild(js);
+        }
+
+        /* ── Main map builder ────────────────────────────── */
+        let _mapCounter=0;
+        function buildMap(o){
+          const dLat=parseFloat(o.lat), dLng=parseFloat(o.lng);
+          if(!dLat||!dLng||isNaN(dLat)||isNaN(dLng))return null;
+
+          /* Parse driver location — prefer sorss_live_location, fallback live_location */
+          const ri=o.route_info||{};
+          function parseLoc(s){
+            if(!s||s==='N/A'||s.trim()==='')return null;
+            const p=s.split(',');
+            if(p.length<2)return null;
+            const la=parseFloat(p[0].trim()),ln=parseFloat(p[1].trim());
+            return(isNaN(la)||isNaN(ln))?null:{lat:la,lng:ln};
+          }
+          const driverPos=parseLoc(ri.sorss_live_location)||parseLoc(ri.live_location);
+          const hasDriver=!!driverPos;
+          const distStr=hasDriver?fmtDist(haversineKm(driverPos.lat,driverPos.lng,dLat,dLng)):'';
+          const reg=(ri.registration&&ri.registration!=='N/A')?ri.registration:'';
+          const dropsInfo=(ri.drops_current&&ri.drops_current!=='N/A'&&ri.drops_total&&ri.drops_total!=='N/A')
+            ?`Stop ${ri.drops_current} of ${ri.drops_total}`:'';
+
+          const mapId='tt-map-'+(++_mapCounter);
+          const linkUrl=`https://www.openstreetmap.org/?mlat=${dLat}&mlon=${dLng}#map=15/${dLat}/${dLng}`;
+
+          const el=document.createElement('div');el.className='tt-row b';
+          el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent">
+            <div class="tt-card" style="padding:0;overflow:hidden">
+              <div style="padding:10px 13px 8px;display:flex;align-items:center;justify-content:space-between">
+                <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1c1c1e">
+                  ${hasDriver?'🚚 Driver Location':'📍 Delivery Address'}
+                </span>
+                <a href="${linkUrl}" target="_blank" style="font-size:10px;color:var(--tt-primary);font-weight:600;text-decoration:none">Open in Maps ↗</a>
+              </div>
+              ${hasDriver?`<div style="display:flex;gap:6px;flex-wrap:wrap;padding:0 13px 8px">
+                ${distStr?`<span style="background:#e8f7ea;color:#1c5a28;font-size:10px;font-weight:700;padding:2px 9px;border-radius:100px">📏 ${distStr}</span>`:''}
+                ${reg?`<span style="background:#f0f0f5;color:#48484a;font-size:10px;font-weight:600;padding:2px 9px;border-radius:100px">🚛 ${xe(reg)}</span>`:''}
+                ${dropsInfo?`<span style="background:#fff3cd;color:#856404;font-size:10px;font-weight:600;padding:2px 9px;border-radius:100px">📦 ${xe(dropsInfo)}</span>`:''}
+              </div>`:''}
+              <div id="${mapId}" style="width:100%;height:190px"></div>
+              <div style="padding:7px 13px;font-size:10.5px;color:#8e8e93;border-top:1px solid #f5f5f7">
+                ${hasDriver?'':`<span style="color:#e07b00;font-weight:600">ℹ️ No driver location available — delivery not yet assigned to a route.</span><br>`}
+                📍 ${xe(o.address)}, ${xe(o.postcode)}
+              </div>
+            </div>
+          </div>`;
+
+          ensureLeaflet(()=>{
+            /* Defer until el is in the DOM and has real pixel dimensions */
+            setTimeout(()=>{
+              const mapDiv=document.getElementById(mapId);
+              if(!mapDiv)return;
+              const map=L.map(mapDiv,{zoomControl:true,scrollWheelZoom:false,attributionControl:false});
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(map);
+
+              /* Delivery pin */
+              const houseIcon=L.divIcon({html:`<div style="background:#3AB54A;width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.3)"><div style="transform:rotate(45deg);text-align:center;line-height:22px;font-size:12px">🏠</div></div>`,iconSize:[28,28],iconAnchor:[14,28],className:''});
+              const homeMarker=L.marker([dLat,dLng],{icon:houseIcon}).addTo(map);
+              homeMarker.bindPopup(`<strong>Delivery Address</strong><br>${xe(o.address)}, ${xe(o.postcode)}`);
+
+              if(hasDriver){
+                /* Driver pin */
+                const truckIcon=L.divIcon({html:`<div style="background:#1d4ed8;width:30px;height:30px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:15px">🚚</div>`,iconSize:[30,30],iconAnchor:[15,15],className:''});
+                const driverMarker=L.marker([driverPos.lat,driverPos.lng],{icon:truckIcon}).addTo(map);
+                const popTxt=`<strong>Driver</strong>${reg?`<br>Vehicle: ${reg}`:''}${dropsInfo?`<br>${dropsInfo}`:''}${distStr?`<br>${distStr}`:''}`;
+                driverMarker.bindPopup(popTxt);
+
+                /* Dashed route line */
+                L.polyline([[driverPos.lat,driverPos.lng],[dLat,dLng]],{
+                  color:'#1d4ed8',weight:3,dashArray:'8 6',opacity:0.75
+                }).addTo(map);
+
+                /* Fit both markers */
+                const bounds=L.latLngBounds([[driverPos.lat,driverPos.lng],[dLat,dLng]]);
+                map.fitBounds(bounds,{padding:[30,30]});
+              } else {
+                map.setView([dLat,dLng],15);
+                homeMarker.openPopup();
+              }
+
+              /* Force tile redraw in case container was scrolled/hidden during init */
+              setTimeout(()=>map.invalidateSize(),150);
+            },300);
+          });
+
           return el;
         }
 
