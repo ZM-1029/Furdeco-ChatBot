@@ -7,7 +7,7 @@ builder.Services.AddHttpClient<IVoodooSmsService, VoodooSmsService>();
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddHttpClient();
-builder.Services.AddHttpClient("GSIT", c => c.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddHttpClient("GSIT", c => c.Timeout = TimeSpan.FromSeconds(45));
 
 builder.Services.AddCors(options =>
 {
