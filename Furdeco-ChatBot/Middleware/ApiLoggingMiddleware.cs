@@ -3,6 +3,7 @@ using Furdeco_ChatBot.Service;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 
 namespace Furdeco_ChatBot.Middleware
 {
@@ -25,6 +26,14 @@ namespace Furdeco_ChatBot.Middleware
                 await _next(context);
                 return;
             }
+
+            // ── CHANGE: skip logging for internal add-note calls ──────────────────
+            if (path.Equals("/api/chat/note", StringComparison.OrdinalIgnoreCase))
+            {
+                await _next(context);
+                return;
+            }
+            // ─────────────────────────────────────────────────────────────────────
 
             var endpoint = path.Split('/').Last().ToLowerInvariant();
 
@@ -108,7 +117,42 @@ namespace Furdeco_ChatBot.Middleware
                     IsUserInput     = IsUserInputText(reference)
                 };
 
-                apiLogger.Log(entry);
+                // ── Snapshot order details from successful track responses ────────
+                if (endpoint == "track" && dataFound == true)
+                {
+                    try
+                    {
+                        var doc  = XDocument.Parse(responseBody);
+                        var root = doc.Root;
+                        string gx(string tag) =>
+                            root?.Element(tag)?.Value?.Trim() is { Length: > 0 } v && v != "N/A" ? v : null!;
+                        string gxi(string parent, string child) =>
+                            root?.Element(parent)?.Element(child)?.Value?.Trim() is { Length: > 0 } v && v != "N/A" ? v : null!;
+
+                        entry.OrderNumber      = NullIfEmpty(gx("order_number"));
+                        entry.Recipient        = NullIfEmpty(gx("recipient"));
+                        entry.SenderCompany    = NullIfEmpty(gx("sender_company"));
+                        var addr               = gx("address");
+                        var pc                 = gx("postcode");
+                        entry.Address          = NullIfEmpty(string.IsNullOrWhiteSpace(pc) ? addr
+                                                    : string.IsNullOrWhiteSpace(addr) ? pc : $"{addr}, {pc}");
+                        entry.PlannedDate      = NullIfEmpty(gx("planned_date"));
+                        entry.PlannedSlotStart = NullIfEmpty(gxi("planned_slot", "start"));
+                        entry.PlannedSlotEnd   = NullIfEmpty(gxi("planned_slot", "end"));
+                        entry.DeliveryStatus   = NullIfEmpty(gx("status"));
+                        entry.ServiceLevel     = NullIfEmpty(gxi("services", "service_level"));
+                        entry.DeliveryPoint    = NullIfEmpty(gxi("services", "delivery_point"));
+
+                        var products = root?.Element("products")?.Descendants("product")
+                            .Select(p => p.Element("description")?.Value?.Trim())
+                            .Where(d => !string.IsNullOrWhiteSpace(d) && d != "N/A")
+                            .ToList();
+                        if (products?.Count > 0) entry.ProductDescriptions = products!;
+                    }
+                    catch { /* non-critical — log still saved without snapshot */ }
+                }
+
+                try { apiLogger.Log(entry); } catch { /* non-critical */ }
             }
         }
 

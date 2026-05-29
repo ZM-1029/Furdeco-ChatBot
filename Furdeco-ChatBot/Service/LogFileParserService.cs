@@ -13,7 +13,11 @@ namespace Furdeco_ChatBot.Service
         {
             var results = new List<ApiRequestLog>();
 
-            foreach (var line in File.ReadLines(filePath))
+            // Open with FileShare.ReadWrite so Serilog's write lock doesn't block us
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var sr = new StreamReader(fs);
+            var allText = sr.ReadToEnd();
+            foreach (var line in allText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 // Only care about completed API chat requests
                 if (!line.Contains("Request finished", StringComparison.Ordinal)) continue;

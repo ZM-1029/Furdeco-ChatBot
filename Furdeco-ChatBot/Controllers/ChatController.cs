@@ -37,7 +37,7 @@ public class ChatController : ControllerBase
         var refParam = string.Equals(refType, "order", StringComparison.OrdinalIgnoreCase)
             ? $"order_number={reference}"
             : $"carrier_reference={reference}";
-        var url = $"{BaseUrl}/_portal/api/_tracking/?key={ApiKey}&{refParam}&postcode={postcode}";
+        var url = $"{BaseUrl}/_portal/api/_tracking/?key={ApiKey}&{refParam}&postcode={Uri.EscapeDataString(postcode)}";
         _logger.LogInformation($"Tracking URL: {url} ");
         try
         {

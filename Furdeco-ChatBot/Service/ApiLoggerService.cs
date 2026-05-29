@@ -16,8 +16,8 @@ namespace Furdeco_ChatBot.Service
 
         public ApiLoggerService(IWebHostEnvironment env)
         {
-            _logDirectory = Path.Combine(env.ContentRootPath, "ReportLogs");
-            Directory.CreateDirectory(_logDirectory);
+            _logDirectory = Path.Combine(env.ContentRootPath, "Logs", "ReportLogs");
+            try { Directory.CreateDirectory(_logDirectory); } catch { /* directory may already exist or require manual creation */ }
         }
 
         private string FilePath(DateTime utcDate) =>
@@ -25,11 +25,16 @@ namespace Furdeco_ChatBot.Service
 
         public void Log(ApiRequestLog entry)
         {
-            var line = JsonSerializer.Serialize(entry);
-            lock (_fileLock)
+            try
             {
-                File.AppendAllText(FilePath(entry.UtcTimestamp.Date), line + Environment.NewLine);
+                Directory.CreateDirectory(_logDirectory);
+                var line = JsonSerializer.Serialize(entry);
+                lock (_fileLock)
+                {
+                    File.AppendAllText(FilePath(entry.UtcTimestamp.Date), line + Environment.NewLine);
+                }
             }
+            catch { /* non-critical — log write failed, entry dropped */ }
         }
 
         public List<ApiRequestLog> GetLogsForDate(DateTime utcDate)

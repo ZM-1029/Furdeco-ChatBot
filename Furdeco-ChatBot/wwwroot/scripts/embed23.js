@@ -1,7 +1,10 @@
 /**
  * TrackIT Embed Script v1.0
  * ─────────────────────────────────────────────────────────────────
- * MVC app origin: https://dev.snapsend.co:550
+ * MVC app origin: https://dev.
+ * 
+ * 
+ * .co:550
  * Chatbot route:  https://dev.snapsend.co:550/chat
  *
  * USAGE — paste before </body> on any static site:

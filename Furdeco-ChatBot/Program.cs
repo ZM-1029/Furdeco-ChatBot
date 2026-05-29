@@ -1,9 +1,15 @@
+using Furdeco_ChatBot.Middleware;
 using Furdeco_ChatBot.Service;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IOtpService, OtpService>();
 builder.Services.AddHttpClient<IVoodooSmsService, VoodooSmsService>();
+
+// Daily report services
+builder.Services.AddSingleton<IApiLoggerService, ApiLoggerService>();
+builder.Services.AddSingleton<ExcelReportService>();
+builder.Services.AddHostedService<DailyReportHostedService>();
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddHttpClient();
@@ -75,6 +81,8 @@ app.UseCors("AllowSpecificOrigin");
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
+app.UseMiddleware<ApiLoggingMiddleware>();
+
 app.UseRouting();
 
 app.UseAuthorization();
@@ -96,3 +104,9 @@ app.Run();
 //{
 //    <script src="https://dev.snapsend.co:550/scripts/embed.js"></script>
 //}
+
+
+
+
+
+//https://localhost:7116/api/report/from-log?path=D:\log-20260518.txt
