@@ -71,6 +71,50 @@ namespace Furdeco_ChatBot.Service
             await _db.SaveChangesAsync();
         }
 
+        // ── Profile / password (self-service) ────────────────────────
+
+        /// <summary>
+        /// Updates the caller's own profile. Returns (user, newJwt) on success,
+        /// or null with an error message if the email is already taken.
+        /// A fresh JWT is issued so the updated name/email claims stay in sync.
+        /// </summary>
+        public async Task<(AgentUser user, string newJwt)?> UpdateProfileAsync(
+            Guid id, string name, string email, string? phone)
+        {
+            var user = await _db.Agents.FindAsync(id);
+            if (user == null) return null;
+
+            var normalizedEmail = email.ToLower().Trim();
+            var taken = await _db.Agents
+                .AnyAsync(a => a.Id != id && a.Email == normalizedEmail);
+            if (taken) return null;
+
+            user.Name  = name.Trim();
+            user.Email = normalizedEmail;
+            user.Phone = string.IsNullOrWhiteSpace(phone) ? null : phone.Trim();
+            await _db.SaveChangesAsync();
+
+            return (user, GenerateJwt(user));
+        }
+
+        /// <summary>
+        /// Changes the caller's password after verifying the current one.
+        /// Returns true on success, false if the current password is wrong
+        /// or the user does not exist.
+        /// </summary>
+        public async Task<bool> ChangePasswordAsync(
+            Guid id, string currentPassword, string newPassword)
+        {
+            var user = await _db.Agents.FindAsync(id);
+            if (user == null) return false;
+            if (!BCrypt.Net.BCrypt.Verify(currentPassword, user.PasswordHash))
+                return false;
+
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+            await _db.SaveChangesAsync();
+            return true;
+        }
+
         public async Task DeleteAsync(Guid id)
         {
             var user = await _db.Agents.FindAsync(id);

@@ -5,6 +5,7 @@ namespace Furdeco_ChatBot.Models
         public Guid   Id           { get; set; } = Guid.NewGuid();
         public string Name         { get; set; } = null!;
         public string Email        { get; set; } = null!;
+        public string? Phone       { get; set; }
         public string PasswordHash { get; set; } = null!;
 
         /// <summary>"Admin" or "Agent"</summary>

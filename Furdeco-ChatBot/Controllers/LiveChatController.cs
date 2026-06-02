@@ -77,8 +77,10 @@ namespace Furdeco_ChatBot.Controllers
             var sessions = await _sessions.GetSessionsByAgentAsync(agentId);
             return Ok(sessions.Select(s => new
             {
-                s.Id, s.Reference, s.CustomerName,
-                s.IssueDescription, s.AcceptedAt
+                s.Id, s.Reference, s.CustomerName, s.IssueDescription,
+                s.Status, s.QueuedAt, s.AcceptedAt,
+                agentName = s.Agent?.Name,
+                agentId   = s.AgentId
             }));
         }
 

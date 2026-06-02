@@ -19,15 +19,17 @@ namespace Furdeco_ChatBot.Controllers
             _sessions = sessions;
         }
 
-        // GET /api/agents
+        // GET /api/agents  — excludes Admin accounts (admins manage, not handle chats)
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var agents = await _users.GetAllAsync();
-            return Ok(agents.Select(a => new
-            {
-                a.Id, a.Name, a.Email, a.Role, a.Status, a.AvatarUrl, a.LastSeenAt
-            }));
+            return Ok(agents
+                .Where(a => !string.Equals(a.Role, "Admin", StringComparison.OrdinalIgnoreCase))
+                .Select(a => new
+                {
+                    a.Id, a.Name, a.Email, a.Role, a.Status, a.AvatarUrl, a.LastSeenAt
+                }));
         }
 
         // GET /api/agents/{id}

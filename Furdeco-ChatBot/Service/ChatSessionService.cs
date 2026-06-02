@@ -185,6 +185,7 @@ namespace Furdeco_ChatBot.Service
 
         public async Task<List<ChatSession>> GetSessionsByAgentAsync(Guid agentId)
             => await _db.ChatSessions
+                .Include(s => s.Agent)
                 .Where(s => s.AgentId == agentId && s.Status == "Active")
                 .OrderBy(s => s.AcceptedAt)
                 .ToListAsync();
@@ -194,5 +195,153 @@ namespace Furdeco_ChatBot.Service
                 .Where(m => m.SessionId == sessionId && (includeWhispers || !m.IsWhisper))
                 .OrderBy(m => m.Timestamp)
                 .ToListAsync();
+
+        // ── Analytics (no migration — computed from existing columns) ─────────
+
+        /// <summary>Per-day session volume vs. resolved count for the last <paramref name="days"/> days.</summary>
+        public async Task<List<object>> GetVolumeSeriesAsync(int days)
+        {
+            if (days < 1) days = 1;
+            var since = DateTime.UtcNow.Date.AddDays(-(days - 1));
+
+            var sessions = await _db.ChatSessions
+                .Where(s => s.QueuedAt >= since || (s.ResolvedAt != null && s.ResolvedAt >= since))
+                .Select(s => new { s.QueuedAt, s.Status, s.ResolvedAt })
+                .ToListAsync();
+
+            var result = new List<object>();
+            for (int i = days - 1; i >= 0; i--)
+            {
+                var day  = DateTime.UtcNow.Date.AddDays(-i);
+                var next = day.AddDays(1);
+                result.Add(new
+                {
+                    day      = day.ToString("dd MMM"),
+                    sessions = sessions.Count(s => s.QueuedAt >= day && s.QueuedAt < next),
+                    resolved = sessions.Count(s => s.Status == "Resolved" && s.ResolvedAt != null
+                                                   && s.ResolvedAt >= day && s.ResolvedAt < next)
+                });
+            }
+            return result;
+        }
+
+        /// <summary>Average pickup time (AcceptedAt − QueuedAt) in seconds, grouped by hour for today.</summary>
+        public async Task<List<object>> GetResponseTimeByHourAsync()
+        {
+            var today    = DateTime.UtcNow.Date;
+            var tomorrow = today.AddDays(1);
+
+            var sessions = await _db.ChatSessions
+                .Where(s => s.AcceptedAt != null && s.AcceptedAt >= today && s.AcceptedAt < tomorrow)
+                .Select(s => new { s.QueuedAt, s.AcceptedAt })
+                .ToListAsync();
+
+            return Enumerable.Range(0, 24).Select(h =>
+            {
+                var items = sessions.Where(s => s.AcceptedAt!.Value.Hour == h).ToList();
+                var avg   = items.Count == 0
+                    ? 0
+                    : items.Average(s => (s.AcceptedAt!.Value - s.QueuedAt).TotalSeconds);
+                return (object)new { hour = $"{h:D2}", avg = (int)Math.Round(avg) };
+            }).ToList();
+        }
+
+        /// <summary>
+        /// Pickup / first-response / response averages (formatted HH:MM:SS) plus a per-day numeric
+        /// series for the last <paramref name="days"/> days. Pass <paramref name="agentId"/> to scope
+        /// to one agent, or null for workspace-wide.
+        /// </summary>
+        public async Task<object> GetSessionMetricsAsync(Guid? agentId, int days)
+        {
+            if (days < 1) days = 1;
+            var since = DateTime.UtcNow.Date.AddDays(-(days - 1));
+
+            var query = _db.ChatSessions.Where(s => s.AcceptedAt != null && s.AcceptedAt >= since);
+            if (agentId.HasValue) query = query.Where(s => s.AgentId == agentId.Value);
+
+            var sessions = await query
+                .Select(s => new { s.Id, s.QueuedAt, s.AcceptedAt })
+                .ToListAsync();
+
+            var sessionIds = sessions.Select(s => s.Id).ToList();
+
+            var messages = await _db.ChatMessages
+                .Where(m => sessionIds.Contains(m.SessionId) && !m.IsWhisper)
+                .Select(m => new { m.SessionId, m.SenderType, m.Timestamp })
+                .ToListAsync();
+
+            var msgsBySession = messages
+                .GroupBy(m => m.SessionId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(m => m.Timestamp).ToList());
+
+            var perSession = new List<(DateTime day, double pickup, double? firstResponse, double? response)>();
+
+            foreach (var s in sessions)
+            {
+                var pickup = (s.AcceptedAt!.Value - s.QueuedAt).TotalSeconds;
+                double? firstResponse = null;
+                double? response = null;
+
+                if (msgsBySession.TryGetValue(s.Id, out var msgs))
+                {
+                    var firstAgent = msgs.FirstOrDefault(m => m.SenderType == "Agent" || m.SenderType == "Admin");
+                    if (firstAgent != null)
+                        firstResponse = (firstAgent.Timestamp - s.AcceptedAt.Value).TotalSeconds;
+
+                    // Average gap from each customer message to the agent's next reply.
+                    var gaps = new List<double>();
+                    DateTime? pendingCustomer = null;
+                    foreach (var m in msgs)
+                    {
+                        if (m.SenderType == "Customer")
+                        {
+                            pendingCustomer ??= m.Timestamp;
+                        }
+                        else if ((m.SenderType == "Agent" || m.SenderType == "Admin") && pendingCustomer != null)
+                        {
+                            gaps.Add((m.Timestamp - pendingCustomer.Value).TotalSeconds);
+                            pendingCustomer = null;
+                        }
+                    }
+                    if (gaps.Count > 0) response = gaps.Average();
+                }
+
+                perSession.Add((s.AcceptedAt.Value.Date, pickup, firstResponse, response));
+            }
+
+            var series = new List<object>();
+            for (int i = days - 1; i >= 0; i--)
+            {
+                var day      = DateTime.UtcNow.Date.AddDays(-i);
+                var dayItems = perSession.Where(p => p.day == day).ToList();
+                series.Add(new
+                {
+                    date          = day.ToString("d MMM"),
+                    pickup        = (int)Math.Round(dayItems.Select(p => p.pickup).DefaultIfEmpty(0).Average()),
+                    response      = (int)Math.Round(dayItems.Where(p => p.response != null)
+                                                            .Select(p => p.response!.Value).DefaultIfEmpty(0).Average()),
+                    firstResponse = (int)Math.Round(dayItems.Where(p => p.firstResponse != null)
+                                                            .Select(p => p.firstResponse!.Value).DefaultIfEmpty(0).Average())
+                });
+            }
+
+            var avgPickup        = perSession.Select(p => p.pickup).DefaultIfEmpty(0).Average();
+            var avgResponse      = perSession.Where(p => p.response != null).Select(p => p.response!.Value).DefaultIfEmpty(0).Average();
+            var avgFirstResponse = perSession.Where(p => p.firstResponse != null).Select(p => p.firstResponse!.Value).DefaultIfEmpty(0).Average();
+
+            return new
+            {
+                avgPickup        = FmtHms(avgPickup),
+                avgResponse      = FmtHms(avgResponse),
+                avgFirstResponse = FmtHms(avgFirstResponse),
+                series
+            };
+        }
+
+        private static string FmtHms(double seconds)
+        {
+            var t = TimeSpan.FromSeconds(seconds);
+            return $"{(int)t.TotalHours:D2}:{t.Minutes:D2}:{t.Seconds:D2}";
+        }
     }
 }

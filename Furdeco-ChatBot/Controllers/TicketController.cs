@@ -50,6 +50,7 @@ namespace Furdeco_ChatBot.Controllers
                 ticket.CustomerName, ticket.Reference,
                 ticket.CreatedAt, ticket.UpdatedAt, ticket.SlaDeadline,
                 ticket.Tags,
+                slaBreach = ticket.SlaDeadline < DateTime.UtcNow && ticket.Status != "Resolved",
                 assignedAgent = ticket.AssignedAgent == null ? null : new
                 {
                     ticket.AssignedAgent.Id, ticket.AssignedAgent.Name
@@ -60,8 +61,26 @@ namespace Furdeco_ChatBot.Controllers
                     .Select(m => new
                     {
                         m.SenderType, m.SenderName, m.Content, m.Timestamp
+                    }),
+                notes = ticket.Notes
+                    .OrderBy(n => n.CreatedAt)
+                    .Select(n => new
+                    {
+                        n.Id, n.Content, n.AuthorName, n.CreatedAt
                     })
             });
+        }
+
+        // POST /api/tickets/{id}/notes
+        [HttpPost("{id:guid}/notes")]
+        public async Task<IActionResult> AddNote(Guid id, [FromBody] AddNoteRequest req)
+        {
+            if (string.IsNullOrWhiteSpace(req.Content))
+                return BadRequest(new { error = "Note content is required." });
+
+            var authorName = User.Identity?.Name ?? "Agent";
+            var note = await _tickets.AddNoteAsync(id, req.Content.Trim(), authorName);
+            return Ok(new { note.Id, note.Content, note.AuthorName, note.CreatedAt });
         }
 
         // PUT /api/tickets/{id}
@@ -80,4 +99,6 @@ namespace Furdeco_ChatBot.Controllers
         string?  Priority,
         Guid?    AssignedAgentId,
         string[]? Tags);
+
+    public record AddNoteRequest(string Content);
 }

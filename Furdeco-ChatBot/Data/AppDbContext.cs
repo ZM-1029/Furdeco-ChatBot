@@ -13,6 +13,8 @@ namespace Furdeco_ChatBot.Data
         public DbSet<Ticket>       Tickets       { get; set; } = null!;
         public DbSet<Notification> Notifications { get; set; } = null!;
         public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
+        public DbSet<CannedReply>  CannedReplies { get; set; } = null!;
+        public DbSet<TicketNote>   TicketNotes   { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder m)
         {
@@ -92,6 +94,25 @@ namespace Furdeco_ChatBot.Data
                 e.HasOne(x => x.Agent)
                  .WithMany(a => a.RefreshTokens)
                  .HasForeignKey(x => x.AgentId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── CannedReply ──────────────────────────────────────────
+            m.Entity<CannedReply>(e =>
+            {
+                e.HasKey(x => x.Id);
+                e.HasIndex(x => x.SortOrder);
+            });
+
+            // ── TicketNote ───────────────────────────────────────────
+            m.Entity<TicketNote>(e =>
+            {
+                e.HasKey(x => x.Id);
+                e.HasIndex(x => new { x.TicketId, x.CreatedAt });
+
+                e.HasOne(x => x.Ticket)
+                 .WithMany(t => t.Notes)
+                 .HasForeignKey(x => x.TicketId)
                  .OnDelete(DeleteBehavior.Cascade);
             });
         }

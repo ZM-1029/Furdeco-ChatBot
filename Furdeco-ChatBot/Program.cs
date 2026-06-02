@@ -40,6 +40,10 @@ builder.Services.AddScoped<AgentUserService>();
 builder.Services.AddScoped<ChatSessionService>();
 builder.Services.AddScoped<TicketService>();
 builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<CannedReplyService>();
+
+// SLA breach monitor
+builder.Services.AddHostedService<SlaMonitorHostedService>();
 
 // SignalR
 builder.Services.AddSignalR();

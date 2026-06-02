@@ -75,6 +75,13 @@ namespace Furdeco_ChatBot.Hubs
                 });
         }
 
+        /// <summary>Customer typing indicator → shown to the agent/admin.</summary>
+        public async Task CustomerTyping(Guid sessionId)
+            => await Clients.OthersInGroup($"session:{sessionId}").SendAsync("CustomerTyping");
+
+        public async Task CustomerStoppedTyping(Guid sessionId)
+            => await Clients.OthersInGroup($"session:{sessionId}").SendAsync("CustomerStoppedTyping");
+
         /// <summary>Customer leaves the queue before being picked up.</summary>
         public async Task LeaveQueue(Guid sessionId)
         {
@@ -96,7 +103,8 @@ namespace Furdeco_ChatBot.Hubs
 
             if (session.AgentId.HasValue)
             {
-                await _tickets.CreateFromSessionAsync(session);
+                var ticket = await _tickets.CreateFromSessionAsync(session);
+                await Clients.Group("admins").SendAsync("TicketCreated", new { ticket.Id });
                 var agentSessions = await _sessions.GetSessionsByAgentAsync(session.AgentId.Value);
                 var newStatus = agentSessions.Count == 0 ? "Online" : "Busy";
                 await _agents.UpdateStatusAsync(session.AgentId.Value, newStatus);
@@ -226,7 +234,8 @@ namespace Furdeco_ChatBot.Hubs
             if (session == null) return;
 
             await Clients.Group($"session:{sessionId}").SendAsync("ChatEnded");
-            await _tickets.CreateFromSessionAsync(session);
+            var ticket = await _tickets.CreateFromSessionAsync(session);
+            await Clients.Group("admins").SendAsync("TicketCreated", new { ticket.Id });
 
             var agentSessions = await _sessions.GetSessionsByAgentAsync(agentId);
             var newStatus = agentSessions.Count == 0 ? "Online" : "Busy";
@@ -293,6 +302,24 @@ namespace Furdeco_ChatBot.Hubs
                 Content   = content,
                 Timestamp = DateTime.UtcNow
             });
+        }
+
+        /// <summary>
+        /// Admin (supervisor) sends a message to the customer after barging in.
+        /// Posted as an agent-side message so the customer's chat renders it on the
+        /// support side, but labelled "Supervisor" so it's distinguishable.
+        /// </summary>
+        public async Task SupervisorSendMessage(Guid sessionId, string content)
+        {
+            var msg = await _sessions.AddMessageAsync(sessionId, "Agent", "Supervisor", content);
+
+            await Clients.Group($"session:{sessionId}")
+                .SendAsync("MessageReceived", new
+                {
+                    msg.Id, msg.SessionId, msg.SenderType, msg.SenderName,
+                    msg.Content, msg.IsWhisper,
+                    timestamp = msg.Timestamp
+                });
         }
 
         /// <summary>Admin barges into a session — their messages go to the customer.</summary>

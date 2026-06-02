@@ -21,11 +21,15 @@ namespace Furdeco_ChatBot.Models
         public DateTime UpdatedAt     { get; set; } = DateTime.UtcNow;
         public DateTime SlaDeadline   { get; set; }
 
+        /// <summary>Set once an SLA-breach notification has been raised, so the monitor doesn't alert repeatedly.</summary>
+        public bool   SlaBreachNotified { get; set; }
+
         /// <summary>PostgreSQL text array column.</summary>
         public string[] Tags          { get; set; } = Array.Empty<string>();
 
         // Navigation
-        public AgentUser?   AssignedAgent { get; set; }
-        public ChatSession? Session       { get; set; }
+        public AgentUser?          AssignedAgent { get; set; }
+        public ChatSession?        Session       { get; set; }
+        public ICollection<TicketNote> Notes     { get; set; } = new List<TicketNote>();
     }
 }

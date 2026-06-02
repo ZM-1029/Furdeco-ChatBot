@@ -3,6 +3,7 @@ using System;
 using Furdeco_ChatBot.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,10 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Furdeco_ChatBot.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260602093047_AddSlaBreachNotified")]
+    partial class AddSlaBreachNotified
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -305,33 +307,6 @@ namespace Furdeco_ChatBot.Migrations
                     b.ToTable("Tickets");
                 });
 
-            modelBuilder.Entity("Furdeco_ChatBot.Models.TicketNote", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AuthorName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("TicketId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TicketId", "CreatedAt");
-
-                    b.ToTable("TicketNotes");
-                });
-
             modelBuilder.Entity("Furdeco_ChatBot.Models.ChatMessage", b =>
                 {
                     b.HasOne("Furdeco_ChatBot.Models.ChatSession", "Session")
@@ -391,17 +366,6 @@ namespace Furdeco_ChatBot.Migrations
                     b.Navigation("Session");
                 });
 
-            modelBuilder.Entity("Furdeco_ChatBot.Models.TicketNote", b =>
-                {
-                    b.HasOne("Furdeco_ChatBot.Models.Ticket", "Ticket")
-                        .WithMany("Notes")
-                        .HasForeignKey("TicketId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Ticket");
-                });
-
             modelBuilder.Entity("Furdeco_ChatBot.Models.AgentUser", b =>
                 {
                     b.Navigation("AssignedSessions");
@@ -418,11 +382,6 @@ namespace Furdeco_ChatBot.Migrations
                     b.Navigation("Messages");
 
                     b.Navigation("Ticket");
-                });
-
-            modelBuilder.Entity("Furdeco_ChatBot.Models.Ticket", b =>
-                {
-                    b.Navigation("Notes");
                 });
 #pragma warning restore 612, 618
         }

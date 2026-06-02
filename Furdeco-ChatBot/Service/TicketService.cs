@@ -54,8 +54,23 @@ namespace Furdeco_ChatBot.Service
             => await _db.Tickets
                 .Include(t => t.AssignedAgent)
                 .Include(t => t.Session)
-                    .ThenInclude(s => s != null ? s.Messages.OrderBy(m => m.Timestamp) : null!)
+                    .ThenInclude(s => s.Messages)
+                .Include(t => t.Notes)
                 .FirstOrDefaultAsync(t => t.Id == id);
+
+        public async Task<TicketNote> AddNoteAsync(Guid ticketId, string content, string authorName)
+        {
+            var note = new TicketNote
+            {
+                TicketId   = ticketId,
+                Content    = content,
+                AuthorName = authorName,
+                CreatedAt  = DateTime.UtcNow
+            };
+            _db.TicketNotes.Add(note);
+            await _db.SaveChangesAsync();
+            return note;
+        }
 
         // ── Update ───────────────────────────────────────────────────
 
