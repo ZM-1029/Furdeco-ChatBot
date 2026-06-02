@@ -1,8 +1,22 @@
+using Furdeco_ChatBot.Data;
+using Furdeco_ChatBot.Hubs;
 using Furdeco_ChatBot.Middleware;
 using Furdeco_ChatBot.Service;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Serilog;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
+//builder.Services.AddDbContext<AppDbContext>(options =>
+//{
+//    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+//    options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+//    options.EnableSensitiveDataLogging();
+//    options.LogTo(Console.WriteLine, LogLevel.Error);
+//});
+// ── Existing chatbot services (unchanged) ─────────────────────────────────
 builder.Services.AddSingleton<IOtpService, OtpService>();
 builder.Services.AddHttpClient<IVoodooSmsService, VoodooSmsService>();
 
@@ -10,19 +24,70 @@ builder.Services.AddHttpClient<IVoodooSmsService, VoodooSmsService>();
 builder.Services.AddSingleton<IApiLoggerService, ApiLoggerService>();
 builder.Services.AddSingleton<ExcelReportService>();
 builder.Services.AddHostedService<DailyReportHostedService>();
-// Add services to the container.
+
 builder.Services.AddControllersWithViews();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient("GSIT", c => c.Timeout = TimeSpan.FromSeconds(45));
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── Live Chat Layer ───────────────────────────────────────────────────────
+// PostgreSQL (EF Core)
+builder.Services.AddDbContext<AppDbContext>(opts =>
+    opts.UseNpgsql(builder.Configuration.GetConnectionString("LiveChat")));
+
+// Live chat services
+builder.Services.AddScoped<AgentUserService>();
+builder.Services.AddScoped<ChatSessionService>();
+builder.Services.AddScoped<TicketService>();
+builder.Services.AddScoped<NotificationService>();
+
+// SignalR
+builder.Services.AddSignalR();
+
+// JWT authentication
+var jwtSection = builder.Configuration.GetSection("Jwt");
+var jwtKey     = jwtSection["Key"]      ?? throw new InvalidOperationException("Jwt:Key missing");
+var jwtIssuer  = jwtSection["Issuer"]   ?? "FurdecoLiveChat";
+var jwtAudience = jwtSection["Audience"] ?? "FurdecoAgents";
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(opts =>
+    {
+        opts.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer           = true,
+            ValidateAudience         = true,
+            ValidateLifetime         = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer              = jwtIssuer,
+            ValidAudience            = jwtAudience,
+            IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+        // Allow JWT via query string for SignalR connections
+        opts.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = ctx =>
+            {
+                var accessToken = ctx.Request.Query["access_token"];
+                var path        = ctx.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                    ctx.Token = accessToken;
+                return Task.CompletedTask;
+            }
+        };
+    });
+// ─────────────────────────────────────────────────────────────────────────
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin",
-        builder =>
+        policy =>
         {
-            builder.AllowAnyOrigin()
-                   .AllowAnyMethod()
-                   .AllowAnyHeader();
+            // Allow any origin for the chatbot iframe + admin dashboard.
+            // Credentials (cookies) not used — JWT via header/query is fine with AllowAnyOrigin.
+            policy.AllowAnyOrigin()
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
         });
 });
 
@@ -44,6 +109,15 @@ Log.Logger = new LoggerConfiguration()
 builder.Host.UseSerilog();
 
 var app = builder.Build();
+
+// ── Run EF Core migrations on startup ────────────────────────────────────
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
+// ─────────────────────────────────────────────────────────────────────────
+
 // Optional: global exception logging
 app.UseExceptionHandler(errorApp =>
 {
@@ -69,26 +143,26 @@ app.Use(async (context, next) =>
 });
 
 // Configure the HTTP request pipeline.
-if (!app.Environment.IsDevelopment() )
+if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Home/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-   
 
+    app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
+    app.UseHttpsRedirection();  // HTTPS only in production
 }
 app.UseCors("AllowSpecificOrigin");
-app.UseHttpsRedirection();
 app.UseStaticFiles();
 
 app.UseMiddleware<ApiLoggingMiddleware>();
 
 app.UseRouting();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 // API routes must be matched first — default route would otherwise match /api/chat/track as controller=api, action=chat
 app.MapControllers();
+app.MapHub<LiveChatHub>("/hubs/livechat");
 app.MapControllerRoute("chat", "chat", new { controller = "ChatPage", action = "Index" });
 
 app.MapControllerRoute(
