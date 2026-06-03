@@ -389,6 +389,34 @@
         #tt-snd:hover{transform:scale(1.08);box-shadow:0 4px 14px rgba(var(--tt-primary-rgb),.38)}
         #tt-snd svg{color:white}
         .tt-foot{text-align:center;font-size:9.5px;color:#c0c0c8;padding:0 14px 8px;flex-shrink:0}
+
+        /* LIVE CHAT — enhanced bubbles */
+        .lc-msg{display:flex;flex-direction:column;max-width:86%;animation:ttIn .22s ease both}
+        .lc-msg.u{align-self:flex-end;align-items:flex-end}
+        .lc-msg.b{align-self:flex-start;align-items:flex-start}
+        .lc-msg .lc-nm{font-size:9px;font-weight:700;color:var(--tt-primary-dark);margin:0 0 2px 6px;letter-spacing:.4px;text-transform:uppercase;opacity:.7}
+        .lc-msg .lc-bbl{padding:7px 11px;border-radius:14px;font-size:12px;line-height:1.5;word-break:break-word}
+        .lc-msg.u .lc-bbl{background:linear-gradient(135deg,var(--tt-primary),var(--tt-gradient-mid));color:#fff;border-bottom-right-radius:4px;box-shadow:0 1px 4px rgba(var(--tt-primary-rgb),.18)}
+        .lc-msg.b .lc-bbl{background:#fff;color:#1c1c1e;border:1px solid #ececf1;border-bottom-left-radius:4px}
+        .lc-msg.sup .lc-bbl{background:linear-gradient(135deg,#7c3aed,#9333ea);color:#fff;border:none;border-bottom-left-radius:4px;box-shadow:0 1px 5px rgba(124,58,237,.28)}
+        .lc-msg.sup .lc-nm{color:#7c3aed;opacity:.95}
+        .lc-msg .lc-tm{font-size:8.5px;color:#b8b8c0;margin:2px 7px 0}
+
+        /* LIVE CHAT — interactive rating */
+        .lc-rate-ttl{font-family:'Syne',sans-serif;font-weight:700;font-size:12.5px;color:#1c1c1e;text-align:center}
+        .lc-rate-sub{font-size:10.5px;color:#8e8e93;text-align:center;margin-top:2px}
+        .lc-stars{display:flex;gap:9px;justify-content:center;margin:12px 0 4px}
+        .lc-star{font-size:30px;line-height:1;background:none;border:none;cursor:pointer;color:#dadae0;transition:transform .12s ease,color .12s ease;padding:0}
+        .lc-star:hover{transform:scale(1.22) rotate(-6deg)}
+        .lc-star.on{color:#f5b301;text-shadow:0 1px 6px rgba(245,179,1,.45)}
+        .lc-star:disabled{cursor:default}
+        .lc-rate-fb{display:flex;align-items:center;justify-content:center;gap:7px;height:26px;opacity:0;transform:translateY(3px);transition:opacity .18s,transform .18s}
+        .lc-rate-fb.show{opacity:1;transform:translateY(0)}
+        .lc-rate-word{font-size:12px;font-weight:700;color:#48484a;letter-spacing:.3px}
+        .lc-rate-skip{width:100%;text-align:center;margin-top:8px}
+        .lc-rate-done{display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 0;animation:ttIn .3s ease both}
+        .lc-rate-done .lc-rate-em{font-size:34px;animation:lcPop .45s cubic-bezier(.18,1.4,.4,1) both}
+        @@keyframes lcPop{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.18)}100%{transform:scale(1);opacity:1}}
         `;
         document.head.appendChild(styleEl);
 
@@ -982,6 +1010,7 @@
               <input type="text" id="lc-name" value="${xe(name)}" placeholder="Full name" autocomplete="off">
               <label style="margin-top:10px;display:block">Briefly describe your issue</label>
               <textarea id="lc-issue" rows="3" placeholder="e.g. My delivery hasn't arrived…" style="width:100%;border:1.5px solid #e5e5ea;border-radius:9px;padding:9px 12px;font-size:12.5px;font-family:'DM Sans',sans-serif;outline:none;resize:none;background:#fafafa;margin-top:5px"></textarea>
+              <div id="lc-prechat-hint" style="display:none;margin-top:8px;font-size:11.5px;color:#c0392b"></div>
               <div class="tt-btns" style="margin-top:10px">
                 <button class="tt-btn-primary" onclick="window._lcSubmitPrechat()">Connect to Agent →</button>
                 <button class="tt-btn-ghost" onclick="window._lcCancelPrechat()">Cancel</button>
@@ -999,10 +1028,18 @@
         };
 
         window._lcSubmitPrechat=async function(){
-          const nv=(document.getElementById('lc-name')?.value||'').trim();
-          const iv=(document.getElementById('lc-issue')?.value||'').trim();
-          if(!nv){document.getElementById('lc-name')?.focus();return;}
-          if(!iv){document.getElementById('lc-issue')?.focus();return;}
+          const nameEl=document.getElementById('lc-name');
+          const issueEl=document.getElementById('lc-issue');
+          const hint=document.getElementById('lc-prechat-hint');
+          const nv=(nameEl?.value||'').trim();
+          const iv=(issueEl?.value||'').trim();
+          const setInvalid=(el,bad)=>{if(el)el.style.borderColor=bad?'#c0392b':'#e5e5ea';};
+          const showHint=msg=>{if(hint){hint.textContent=msg;hint.style.display='block';}};
+          // reset previous validation state
+          if(hint)hint.style.display='none';
+          setInvalid(nameEl,false);setInvalid(issueEl,false);
+          if(!nv){showHint('Please enter your name first.');setInvalid(nameEl,true);nameEl?.focus();return;}
+          if(!iv){showHint('Please briefly describe your issue first.');setInvalid(issueEl,true);issueEl?.focus();return;}
           document.querySelectorAll('#lc-prechat input,#lc-prechat textarea,#lc-prechat button').forEach(e=>e.disabled=true);
           userMsg(nv+': '+iv);
           await lcConnect(nv,iv);
@@ -1023,7 +1060,7 @@
             });
             conn.on('MessageReceived',msg=>{
               if(msg.senderType==='Agent'||msg.senderType==='Admin'){
-                lcAddMsg(msg.content,msg.senderName,'b');
+                lcAddMsg(msg.content,msg.senderName,'b',msg.timestamp);
               }
             });
             conn.on('AgentTyping',()=>{const t=document.getElementById('lc-typing');if(t)t.style.display='flex';});
@@ -1115,12 +1152,15 @@
           if(lc._typingOn&&lc.connection&&lc.sessionId){lc._typingOn=false;lc.connection.invoke('CustomerStoppedTyping',lc.sessionId).catch(()=>{});}
         };
 
-        function lcAddMsg(content,senderName,side){
+        function lcAddMsg(content,senderName,side,ts){
           const c=document.getElementById('lc-msgs');if(!c)return;
-          const d=document.createElement('div');
-          d.style.cssText=`display:flex;justify-content:${side==='u'?'flex-end':'flex-start'};margin-bottom:2px`;
-          d.innerHTML=`<div style="max-width:85%;padding:7px 11px;border-radius:14px;font-size:12px;line-height:1.5;word-break:break-word;${side==='u'?'background:linear-gradient(135deg,var(--tt-primary),var(--tt-gradient-mid));color:white;border-bottom-right-radius:4px':'background:#f0f0f5;color:#1c1c1e;border-bottom-left-radius:4px'}">${xe(content)}</div>`;
-          c.appendChild(d);c.scrollTop=c.scrollHeight;
+          const isSup=side!=='u'&&senderName==='Supervisor';
+          let tm='';try{tm=new Date(ts||Date.now()).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}catch(e){}
+          const wrap=document.createElement('div');
+          wrap.className='lc-msg '+(side==='u'?'u':(isSup?'b sup':'b'));
+          const nm=side==='u'?'':`<div class="lc-nm">${isSup?'Supervisor':xe(senderName||'Agent')}</div>`;
+          wrap.innerHTML=`${nm}<div class="lc-bbl">${xe(content)}</div><div class="lc-tm">${tm}</div>`;
+          c.appendChild(wrap);c.scrollTop=c.scrollHeight;
         }
 
         window._lcSend=async function(){
@@ -1156,25 +1196,44 @@
           localStorage.removeItem(LC_KEY);
         }
 
+        const LC_RATE_FB=[{e:'😞',t:'Poor'},{e:'😕',t:'Fair'},{e:'🙂',t:'Good'},{e:'😀',t:'Great'},{e:'🤩',t:'Excellent'}];
+
         function lcShowRating(){
+          lc._rating=0;
           setTimeout(async()=>{
             await botMsg("How was your experience with our agent?",0);
             const el=document.createElement('div');el.className='tt-row b';
             el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent">
               <div class="tt-vcard">
-                <label>Rate your chat</label>
-                <div style="display:flex;gap:6px;justify-content:center;margin:8px 0" id="lc-stars">
-                  ${[1,2,3,4,5].map(n=>`<button onclick="window._lcRate(${n})" style="font-size:24px;background:none;border:none;cursor:pointer;opacity:.35;transition:opacity .15s;padding:0" id="lc-star-${n}">★</button>`).join('')}
+                <div class="lc-rate-ttl">Rate your chat</div>
+                <div class="lc-rate-sub">Tap a star to let us know how we did</div>
+                <div class="lc-stars" id="lc-stars">
+                  ${[1,2,3,4,5].map(n=>`<button class="lc-star" id="lc-star-${n}" aria-label="${n} star" onmouseover="window._lcRateHover(${n})" onmouseout="window._lcRateReset()" onclick="window._lcRate(${n})">★</button>`).join('')}
                 </div>
-                <button class="tt-qr grey" style="width:100%;text-align:center;margin-top:4px" onclick="window._lcSkipRating()">Skip</button>
+                <div class="lc-rate-fb" id="lc-rate-fb"></div>
+                <button class="tt-qr grey lc-rate-skip" id="lc-rate-skip" onclick="window._lcSkipRating()">Skip</button>
               </div>
             </div>`;
             msgs.appendChild(el);sd();
           },500);
         }
 
+        window._lcRatePaint=function(n){
+          for(let i=1;i<=5;i++){const s=document.getElementById('lc-star-'+i);if(s)s.classList.toggle('on',i<=n);}
+          const fb=document.getElementById('lc-rate-fb');if(!fb)return;
+          if(n>0){const f=LC_RATE_FB[n-1];fb.innerHTML=`<span style="font-size:20px">${f.e}</span><span class="lc-rate-word">${f.t}</span>`;fb.classList.add('show');}
+          else{fb.classList.remove('show');}
+        };
+        window._lcRateHover=function(n){window._lcRatePaint(n);};
+        window._lcRateReset=function(){window._lcRatePaint(lc._rating||0);};
+
         window._lcRate=async function(n){
-          [1,2,3,4,5].forEach(i=>{const s=document.getElementById(`lc-star-${i}`);if(s){s.style.opacity=i<=n?'1':'.2';s.disabled=true;}});
+          lc._rating=n;window._lcRatePaint(n);
+          for(let i=1;i<=5;i++){const s=document.getElementById('lc-star-'+i);if(s)s.disabled=true;}
+          const sk=document.getElementById('lc-rate-skip');if(sk)sk.style.display='none';
+          const f=LC_RATE_FB[n-1];
+          const fb=document.getElementById('lc-rate-fb');
+          if(fb){fb.innerHTML=`<span class="lc-rate-em" style="font-size:24px">${f.e}</span><span class="lc-rate-word">${f.t}</span>`;fb.classList.add('show');}
           try{await tf(`/api/livechat/sessions/${lc.sessionId}/rate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:n})});}catch(e){}
           await botMsg(`Thanks for your ${n}★ rating! Is there anything else I can help with?`,0);
           lcPostChatOptions();
@@ -1212,7 +1271,7 @@
             lc.status='active';lc.agentName=agentName;showActiveChatUI(agentName);
           });
           conn.on('MessageReceived',msg=>{
-            if(msg.senderType==='Agent'||msg.senderType==='Admin')lcAddMsg(msg.content,msg.senderName,'b');
+            if(msg.senderType==='Agent'||msg.senderType==='Admin')lcAddMsg(msg.content,msg.senderName,'b',msg.timestamp);
           });
           conn.on('AgentTyping',()=>{const t=document.getElementById('lc-typing');if(t)t.style.display='flex';});
           conn.on('AgentStoppedTyping',()=>{const t=document.getElementById('lc-typing');if(t)t.style.display='none';});
@@ -1224,7 +1283,7 @@
           // Replay message history
           if(data.messages?.length){
             if(lc.status==='active')showActiveChatUI(lc.agentName||'Agent');
-            data.messages.forEach(m=>{lcAddMsg(m.content,m.senderName,m.senderType==='Customer'?'u':'b');});
+            data.messages.forEach(m=>{lcAddMsg(m.content,m.senderName,m.senderType==='Customer'?'u':'b',m.timestamp);});
           } else if(lc.status==='active'){
             showActiveChatUI(lc.agentName||'Agent');
           } else {

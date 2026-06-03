@@ -37,7 +37,10 @@ namespace Furdeco_ChatBot.Service
         public async Task<List<Ticket>> GetAllAsync(string? status = null, string? priority = null,
             Guid? agentId = null, string? search = null)
         {
-            var q = _db.Tickets.Include(t => t.AssignedAgent).AsQueryable();
+            var q = _db.Tickets
+                .Include(t => t.AssignedAgent)
+                .Include(t => t.Session)
+                .AsQueryable();
 
             if (!string.IsNullOrEmpty(status))   q = q.Where(t => t.Status   == status);
             if (!string.IsNullOrEmpty(priority)) q = q.Where(t => t.Priority == priority);
