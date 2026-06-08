@@ -3,6 +3,7 @@ using System;
 using Furdeco_ChatBot.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,10 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Furdeco_ChatBot.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260605125712_AddOrderSnapshot")]
+    partial class AddOrderSnapshot
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -333,31 +335,6 @@ namespace Furdeco_ChatBot.Migrations
                     b.HasIndex("TicketId", "CreatedAt");
 
                     b.ToTable("TicketNotes");
-                });
-
-            modelBuilder.Entity("Furdeco_ChatBot.Models.WorkspaceSetting", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("AutoAssignEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("MaxAssignAttempts")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("MaxConcurrentChats")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("ResponseTimeoutSeconds")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("WorkspaceSettings");
                 });
 
             modelBuilder.Entity("Furdeco_ChatBot.Models.ChatMessage", b =>

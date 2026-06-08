@@ -12,13 +12,14 @@ namespace Furdeco_ChatBot.Service
 
         // ── Queue ────────────────────────────────────────────────────
 
-        public async Task<ChatSession> CreateAndQueueAsync(string reference, string customerName, string issueDescription)
+        public async Task<ChatSession> CreateAndQueueAsync(string reference, string customerName, string issueDescription, string? orderSnapshot = null)
         {
             var session = new ChatSession
             {
                 Reference        = reference,
                 CustomerName     = customerName,
                 IssueDescription = issueDescription,
+                OrderSnapshot    = string.IsNullOrWhiteSpace(orderSnapshot) ? null : orderSnapshot,
                 Status           = "Queued",
                 QueuedAt         = DateTime.UtcNow
             };
@@ -64,6 +65,23 @@ namespace Furdeco_ChatBot.Service
                               ORDER BY ""QueuedAt""
                               LIMIT 1
                               FOR UPDATE SKIP LOCKED")
+                .FirstOrDefaultAsync();
+            return session;
+        }
+
+        /// <summary>
+        /// Claims a SPECIFIC queued session (cherry-pick). Returns the session
+        /// only if it is still Queued and not locked by another agent's claim;
+        /// otherwise null (already taken / being taken). Same FOR UPDATE SKIP
+        /// LOCKED guard as DequeueNextAsync to prevent double-assignment.
+        /// </summary>
+        public async Task<ChatSession?> ClaimSessionAsync(Guid sessionId)
+        {
+            var session = await _db.ChatSessions
+                .FromSqlRaw(@"SELECT * FROM ""ChatSessions""
+                              WHERE ""Id"" = {0} AND ""Status"" = 'Queued'
+                              LIMIT 1
+                              FOR UPDATE SKIP LOCKED", sessionId)
                 .FirstOrDefaultAsync();
             return session;
         }
@@ -182,6 +200,28 @@ namespace Furdeco_ChatBot.Service
                 .Where(s => s.Status == "Active")
                 .OrderBy(s => s.AcceptedAt)
                 .ToListAsync();
+
+        /// <summary>
+        /// For each given session, the latest non-whisper message's timestamp and
+        /// sender type. Used to detect chats awaiting an agent reply.
+        /// </summary>
+        public async Task<Dictionary<Guid, (DateTime Timestamp, string SenderType)>> GetLastMessagePerSessionAsync(List<Guid> sessionIds)
+        {
+            if (sessionIds.Count == 0) return new();
+            var msgs = await _db.ChatMessages
+                .Where(m => sessionIds.Contains(m.SessionId) && !m.IsWhisper)
+                .Select(m => new { m.SessionId, m.Timestamp, m.SenderType })
+                .ToListAsync();
+            return msgs
+                .GroupBy(m => m.SessionId)
+                .ToDictionary(
+                    g => g.Key,
+                    g =>
+                    {
+                        var last = g.OrderByDescending(x => x.Timestamp).First();
+                        return (last.Timestamp, last.SenderType);
+                    });
+        }
 
         public async Task<List<ChatSession>> GetSessionsByAgentAsync(Guid agentId)
             => await _db.ChatSessions

@@ -20,17 +20,19 @@ namespace Furdeco_ChatBot.Hubs
         private readonly AgentUserService    _agents;
         private readonly TicketService       _tickets;
         private readonly NotificationService _notifs;
+        private readonly AutoAssignTracker   _autoAssign;
 
         // ConnectionId → agentId (for online presence tracking)
         private static readonly ConcurrentDictionary<string, Guid> _agentConnections = new();
 
         public LiveChatHub(ChatSessionService sessions, AgentUserService agents,
-            TicketService tickets, NotificationService notifs)
+            TicketService tickets, NotificationService notifs, AutoAssignTracker autoAssign)
         {
-            _sessions = sessions;
-            _agents   = agents;
-            _tickets  = tickets;
-            _notifs   = notifs;
+            _sessions   = sessions;
+            _agents     = agents;
+            _tickets    = tickets;
+            _notifs     = notifs;
+            _autoAssign = autoAssign;
         }
 
         // ── CUSTOMER METHODS ─────────────────────────────────────────
@@ -40,9 +42,9 @@ namespace Furdeco_ChatBot.Hubs
         /// Guard: backend trusts the OTP was verified client-side (chatbot enforces it).
         /// </summary>
         public async Task<object> JoinQueue(string reference, string postcode,
-            string customerName, string issueDescription)
+            string customerName, string issueDescription, string? orderSnapshot = null)
         {
-            var session = await _sessions.CreateAndQueueAsync(reference, customerName, issueDescription);
+            var session = await _sessions.CreateAndQueueAsync(reference, customerName, issueDescription, orderSnapshot);
             var position = await _sessions.GetQueuePositionAsync(session.Id);
 
             await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{session.Id}");
@@ -143,14 +145,29 @@ namespace Furdeco_ChatBot.Hubs
 
         // ── AGENT METHODS ────────────────────────────────────────────
 
-        /// <summary>Agent connects and sets themselves Online.</summary>
+        /// <summary>
+        /// Agent connects. Preserves a deliberately-chosen status (Online/Busy/Away);
+        /// only flips to Online when the agent was Offline — so a manual status
+        /// survives a page refresh instead of being reset on every reconnect.
+        /// </summary>
         public async Task AgentConnect(Guid agentId)
         {
             _agentConnections[Context.ConnectionId] = agentId;
             await Groups.AddToGroupAsync(Context.ConnectionId, "agents");
             await Groups.AddToGroupAsync(Context.ConnectionId, $"agent:{agentId}");
-            await _agents.UpdateStatusAsync(agentId, "Online");
-            await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, "Online");
+
+            var agent = await _agents.GetByIdAsync(agentId);
+            var effective = string.IsNullOrEmpty(agent?.Status) ? "Offline" : agent!.Status;
+            if (effective == "Offline")
+            {
+                effective = "Online";
+                await _agents.UpdateStatusAsync(agentId, effective);
+            }
+
+            // Notify admins AND the agent's own UI so the status selector reflects
+            // the real, server-side value (not a hardcoded default).
+            await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, effective);
+            await Clients.Caller.SendAsync("AgentStatusChanged", agentId, effective);
 
             // Send current queue snapshot to newly connected agent
             var snapshot = await BuildQueueSnapshot();
@@ -203,11 +220,53 @@ namespace Furdeco_ChatBot.Hubs
             return new { session.Id, session.Reference, session.CustomerName, session.IssueDescription };
         }
 
+        /// <summary>
+        /// Agent accepts a SPECIFIC queued chat (cherry-pick from the waiting
+        /// list) rather than the oldest. Returns null if the chat was already
+        /// taken by another agent.
+        /// </summary>
+        public async Task<object?> AcceptChat(Guid sessionId, Guid agentId)
+        {
+            var session = await _sessions.ClaimSessionAsync(sessionId);
+            if (session == null)
+            {
+                await Clients.Caller.SendAsync("ChatAlreadyTaken", sessionId);
+                return null;
+            }
+
+            var agent = await _agents.GetByIdAsync(agentId);
+            if (agent == null) return null;
+
+            await _sessions.AssignToAgentAsync(session.Id, agentId, agent.Name);
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{session.Id}");
+
+            // Notify customer
+            await Clients.Group($"session:{session.Id}")
+                .SendAsync("AgentJoined", agent.Name);
+
+            // Update admin view
+            await Clients.Group("admins").SendAsync("SessionAssigned", session.Id, agentId);
+
+            // Update queue for everyone
+            var snapshot = await BuildQueueSnapshot();
+            await Clients.Group("agents").SendAsync("QueueUpdated", snapshot);
+            await Clients.Group("admins").SendAsync("QueueUpdated", snapshot);
+
+            // Mark agent Busy
+            await _agents.UpdateStatusAsync(agentId, "Busy");
+            await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, "Busy");
+
+            return new { session.Id, session.Reference, session.CustomerName, session.IssueDescription };
+        }
+
         /// <summary>Agent sends a message to the customer.</summary>
         public async Task AgentSendMessage(Guid sessionId, Guid agentId, string content)
         {
             var agent = await _agents.GetByIdAsync(agentId);
             if (agent == null) return;
+
+            // A first reply satisfies an auto-assign offer (so it isn't reassigned).
+            _autoAssign.MarkReplied(sessionId);
 
             var msg = await _sessions.AddMessageAsync(sessionId, "Agent", agent.Name, content);
 
@@ -372,6 +431,7 @@ namespace Furdeco_ChatBot.Hubs
         {
             s.Id, s.Reference, s.CustomerName, s.IssueDescription,
             s.Status, s.QueuedAt, s.AcceptedAt,
+            orderSnapshot = s.OrderSnapshot,
             agentName = s.Agent?.Name,
             agentId   = s.AgentId
         };

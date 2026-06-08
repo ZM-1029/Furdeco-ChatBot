@@ -15,6 +15,7 @@ namespace Furdeco_ChatBot.Data
         public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
         public DbSet<CannedReply>  CannedReplies { get; set; } = null!;
         public DbSet<TicketNote>   TicketNotes   { get; set; } = null!;
+        public DbSet<WorkspaceSetting> WorkspaceSettings { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder m)
         {
@@ -102,6 +103,12 @@ namespace Furdeco_ChatBot.Data
             {
                 e.HasKey(x => x.Id);
                 e.HasIndex(x => x.SortOrder);
+            });
+
+            // ── WorkspaceSetting (single row) ─────────────────────────
+            m.Entity<WorkspaceSetting>(e =>
+            {
+                e.HasKey(x => x.Id);
             });
 
             // ── TicketNote ───────────────────────────────────────────

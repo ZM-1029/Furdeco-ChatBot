@@ -451,8 +451,16 @@
           </div>
         </div>
         <div id="tt-msgs"></div>
+        <div id="lc-bar" style="display:none;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;border-top:1px solid #e8e8ed;background:#f0faf1;flex-shrink:0">
+          <span id="lc-bar-status" style="font-size:11px;color:var(--tt-primary-dark);font-weight:600;display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
+            <span style="width:7px;height:7px;min-width:7px;border-radius:50%;background:#34c759;display:inline-block"></span><span id="lc-bar-text">Live chat</span>
+          </span>
+          <button type="button" onclick="window._lcEnd()" style="font-size:11px;font-weight:600;color:#dc2626;background:white;border:1.5px solid #dc2626;border-radius:100px;padding:4px 13px;cursor:pointer;flex-shrink:0">End Chat</button>
+        </div>
+        <div id="lc-emoji-panel" style="display:none;flex-wrap:wrap;gap:1px;padding:6px 10px;border-top:1px solid #f0f0f5;background:#fafafa;max-height:104px;overflow-y:auto;flex-shrink:0"></div>
         <div class="tt-ia">
           <input type="text" id="tt-inp" placeholder="Type a message…" autocomplete="off">
+          <button type="button" id="tt-emoji" aria-label="Emoji" onclick="window._lcToggleEmoji()" style="display:none;width:38px;height:38px;flex-shrink:0;background:#f0f0f5;border:none;border-radius:50%;cursor:pointer;align-items:center;justify-content:center;font-size:18px;line-height:1">😊</button>
           <button type="button" id="tt-snd" aria-label="Send">
             <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
               <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
@@ -467,6 +475,7 @@
 
         // ── Live Chat state (additive — does not alter any existing variables) ─
         const LC_KEY='lc_sessionId';
+        const LC_EMOJIS=['😀','😃','😄','😁','😅','😂','🙂','😊','😉','😍','😎','🤔','👍','👎','👌','🙏','👏','🙌','💪','🎉','✅','❌','❤️','🔥','⭐','💯','😢','😡','🤝','👋','🚀','💡'];
         let otpVerified=false;
         let lc={sessionId:null,connection:null,status:null,agentName:null};
         // ─────────────────────────────────────────────────────────────────────
@@ -526,7 +535,14 @@
         },300);
 
         function handleInput(){
+          // When a live chat is active, the single composer talks to the agent.
+          if(lc.status==='active'){window._lcSend();return;}
           const val=inp.value.trim();if(!val)return;inp.value='';
+          // Conversational pre-chat capture (replaces the old boxed form). These
+          // take priority over keyword routing so a name/issue is taken verbatim.
+          if(state==='lc_name'){userMsg(val);dQR();lc._name=val;state='lc_issue';botMsg("Thanks! Now please <strong>briefly describe your issue</strong> so the agent can help faster.");qrs([{label:'✖ Cancel',fn:()=>{dQR();userMsg('Cancel');window._lcCancelPrechat();}}],300);return;}
+          if(state==='lc_issue'){userMsg(val);dQR();state='lc_waiting';lcConnect(lc._name||order?.recipient||'Customer',val);return;}
+          if(state==='lc_waiting'){userMsg(val);botMsg("You're in the queue — an agent will join shortly. 🙏");return;}
           if(RE_H.test(val)){userMsg(val);humanHandoff();return;}
           if(RE_C.test(val)&&['otp_choice','otp_email','otp_phone','otp_verify','verify','instructions'].includes(state)){userMsg(val);cancelFlow();return;}
           userMsg(val);
@@ -997,55 +1013,46 @@
 
         async function startLiveChatFlow(){
           await botMsg("🙋 <strong>Connect to a Live Agent</strong><br>One of our team will assist you shortly.");
-          showPreChatForm();
-        }
-
-        function showPreChatForm(){
-          document.querySelectorAll('#lc-prechat').forEach(n=>{const r=n.closest('.tt-row');(r||n).remove();});
-          const name=order?.recipient||'';
-          const el=document.createElement('div');el.className='tt-row b';
-          el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent">
-            <div class="tt-vcard" id="lc-prechat">
-              <label>Your Name</label>
-              <input type="text" id="lc-name" value="${xe(name)}" placeholder="Full name" autocomplete="off">
-              <label style="margin-top:10px;display:block">Briefly describe your issue</label>
-              <textarea id="lc-issue" rows="3" placeholder="e.g. My delivery hasn't arrived…" style="width:100%;border:1.5px solid #e5e5ea;border-radius:9px;padding:9px 12px;font-size:12.5px;font-family:'DM Sans',sans-serif;outline:none;resize:none;background:#fafafa;margin-top:5px"></textarea>
-              <div id="lc-prechat-hint" style="display:none;margin-top:8px;font-size:11.5px;color:#c0392b"></div>
-              <div class="tt-btns" style="margin-top:10px">
-                <button class="tt-btn-primary" onclick="window._lcSubmitPrechat()">Connect to Agent →</button>
-                <button class="tt-btn-ghost" onclick="window._lcCancelPrechat()">Cancel</button>
-              </div>
-            </div>
-          </div>`;
-          msgs.appendChild(el);sd();
-          setTimeout(()=>document.getElementById('lc-name')?.focus(),300);
+          lc._name='';
+          state='lc_name';
+          const hint=order?.recipient?` (you can reply <strong>${xe(order.recipient)}</strong>)`:'';
+          await botMsg(`First, what <strong>name</strong> should the agent use?${hint}`);
+          qrs([{label:'✖ Cancel',fn:()=>{dQR();userMsg('Cancel');window._lcCancelPrechat();}}],300);
         }
 
         window._lcCancelPrechat=function(){
-          document.querySelectorAll('#lc-prechat').forEach(n=>{const r=n.closest('.tt-row');(r||n).remove();});
-          userMsg('Cancel');state='action';
+          state='post_action';
           botMsg("No problem! Is there anything else I can help you with?",0);
+          qrs([{label:'🔍 Track Another',fn:()=>{userMsg('Track another');resetLookup();}},{label:'📞 Contact Us',fn:()=>{userMsg('Contact details');showContactDetails();}},{label:'👋 All Done',fn:()=>{dQR();userMsg('All done');goodbye();}}],300);
         };
 
-        window._lcSubmitPrechat=async function(){
-          const nameEl=document.getElementById('lc-name');
-          const issueEl=document.getElementById('lc-issue');
-          const hint=document.getElementById('lc-prechat-hint');
-          const nv=(nameEl?.value||'').trim();
-          const iv=(issueEl?.value||'').trim();
-          const setInvalid=(el,bad)=>{if(el)el.style.borderColor=bad?'#c0392b':'#e5e5ea';};
-          const showHint=msg=>{if(hint){hint.textContent=msg;hint.style.display='block';}};
-          // reset previous validation state
-          if(hint)hint.style.display='none';
-          setInvalid(nameEl,false);setInvalid(issueEl,false);
-          if(!nv){showHint('Please enter your name first.');setInvalid(nameEl,true);nameEl?.focus();return;}
-          if(!iv){showHint('Please briefly describe your issue first.');setInvalid(issueEl,true);issueEl?.focus();return;}
-          document.querySelectorAll('#lc-prechat input,#lc-prechat textarea,#lc-prechat button').forEach(e=>e.disabled=true);
-          userMsg(nv+': '+iv);
-          await lcConnect(nv,iv);
-        };
+        // Compact snapshot of the looked-up order, sent to the backend when the
+        // chat is queued so the agent/admin can see the order context.
+        function _lcOrderSnapshot(){
+          if(!order)return '';
+          try{
+            return JSON.stringify({
+              reference:    order.carrier_reference||pRef||'',
+              order_number: order.order_number||'',
+              retailer:     order.sender_company||'',
+              recipient:    order.recipient||'',
+              address:      order.address||'',
+              postcode:     order.postcode||pPc||'',
+              status:       order.status||'',
+              confirmed:    order.confirmed||'',
+              planned_date: order.planned_date||'',
+              planned_slot: order.planned_slot||null,
+              products:     Array.isArray(order.products)?order.products.slice(0,6).map(p=>({part:p.part,description:p.description})):[],
+              services:     order.services?{service_level:order.services.service_level,delivery_point:order.services.delivery_point}:null,
+              order_steps:  order.order_steps||null,
+              email:        order.email||'',
+              mobile:       order.contact_mobile||''
+            });
+          }catch(e){return '';}
+        }
 
         async function lcConnect(customerName,issueDescription){
+          lc._closed=false;
           const ldr=ldrMsg('Connecting to an agent…');
           try{
             const conn=new signalR.HubConnectionBuilder()
@@ -1063,12 +1070,12 @@
                 lcAddMsg(msg.content,msg.senderName,'b',msg.timestamp);
               }
             });
-            conn.on('AgentTyping',()=>{const t=document.getElementById('lc-typing');if(t)t.style.display='flex';});
-            conn.on('AgentStoppedTyping',()=>{const t=document.getElementById('lc-typing');if(t)t.style.display='none';});
+            conn.on('AgentTyping',()=>_lcShowTyping());
+            conn.on('AgentStoppedTyping',()=>_lcClearTyping());
             conn.on('ChatEnded',()=>{lc.status='ended';lcEndedByAgent();});
 
             await conn.start();
-            const result=await conn.invoke('JoinQueue',pRef||'',pPc||'',customerName,issueDescription);
+            const result=await conn.invoke('JoinQueue',pRef||'',pPc||'',customerName,issueDescription,_lcOrderSnapshot());
             lc.sessionId=result.sessionId;
             lc.status='queued';
             localStorage.setItem(LC_KEY,String(lc.sessionId));
@@ -1110,35 +1117,51 @@
         function showActiveChatUI(agentName){
           document.querySelectorAll('#lc-queue-screen').forEach(n=>{const r=n.closest('.tt-row');(r||n).remove();});
           raw(`<div class="tt-row b"><div class="tt-bbl">✅ <strong>${xe(agentName)}</strong> has joined the chat!</div></div>`);sd();
-          const el=document.createElement('div');el.className='tt-row b';el.id='lc-chat-wrapper';
-          el.innerHTML=`<div class="tt-bbl" style="max-width:97%;padding:0;background:transparent">
-            <div style="border:1px solid #e5e5ea;border-radius:13px;overflow:hidden">
-              <div id="lc-msgs" style="min-height:60px;max-height:220px;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:#fafafa"></div>
-              <div id="lc-typing" style="display:none;align-items:center;gap:5px;padding:5px 12px;background:#fafafa;border-top:1px solid #f0f0f5">
-                <div class="tt-td"></div><div class="tt-td"></div><div class="tt-td"></div>
-                <span style="font-size:10.5px;color:#8e8e93">${xe(agentName)} is typing…</span>
-              </div>
-              <div style="display:flex;gap:6px;padding:8px 10px;border-top:1px solid #e5e5ea;background:white;align-items:center">
-                <input type="text" id="lc-inp" placeholder="Type a message…" autocomplete="off"
-                  style="flex:1;border:1.5px solid #e5e5ea;border-radius:100px;padding:7px 13px;font-size:12.5px;font-family:'DM Sans',sans-serif;outline:none;background:#f5f5f7">
-                <button onclick="window._lcSend()" style="width:34px;height:34px;flex-shrink:0;background:linear-gradient(135deg,var(--tt-primary),var(--tt-gradient-mid));border:none;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center">
-                  <svg width="13" height="13" fill="none" stroke="white" stroke-width="2.5" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                </button>
-              </div>
-              <div style="padding:4px 10px 8px;text-align:right">
-                <button class="tt-qr red" style="font-size:10.5px;padding:4px 11px" onclick="window._lcEnd()">End Chat</button>
-              </div>
-            </div>
-          </div>`;
-          msgs.appendChild(el);sd();
-          setTimeout(()=>{
-            const li=document.getElementById('lc-inp');
-            if(li){
-              li.addEventListener('keydown',e=>{if(e.key==='Enter')window._lcSend();});
-              li.addEventListener('input',window._lcTyping);
-            }
-          },200);
+          // Switch the single (outer) composer into live-chat mode rather than
+          // rendering a separate nested chat box. Messages flow into the main
+          // conversation stream just like the bot's.
+          _lcEnterLiveMode(agentName);
         }
+
+        // Turns the main composer into the live-agent composer: shows the emoji
+        // button + the End Chat bar, and routes input to the agent.
+        function _lcEnterLiveMode(agentName){
+          const em=document.getElementById('tt-emoji');if(em)em.style.display='flex';
+          const bar=document.getElementById('lc-bar');if(bar)bar.style.display='flex';
+          const bt=document.getElementById('lc-bar-text');if(bt)bt.textContent='Connected to '+(agentName||'agent');
+          if(inp){inp.placeholder='Message '+(agentName||'agent')+'…';inp.disabled=false;inp.focus();}
+        }
+
+        function _lcExitLiveMode(){
+          const em=document.getElementById('tt-emoji');if(em)em.style.display='none';
+          const bar=document.getElementById('lc-bar');if(bar)bar.style.display='none';
+          const panel=document.getElementById('lc-emoji-panel');if(panel)panel.style.display='none';
+          _lcClearTyping();
+          if(inp){inp.placeholder='Type a message…';}
+        }
+
+        function _lcClearTyping(){
+          const t=document.getElementById('lc-typing-row');if(t)t.remove();
+        }
+
+        function _lcShowTyping(){
+          if(lc.status!=='active')return;
+          if(document.getElementById('lc-typing-row'))return;
+          const row=document.createElement('div');row.className='tt-row b';row.id='lc-typing-row';
+          row.innerHTML=`<div class="tt-typ"><div class="tt-td"></div><div class="tt-td"></div><div class="tt-td"></div></div>`;
+          msgs.appendChild(row);sd();
+        }
+
+        window._lcToggleEmoji=function(){
+          const p=document.getElementById('lc-emoji-panel');
+          if(p)p.style.display=(p.style.display==='none'||!p.style.display)?'flex':'none';
+        };
+
+        window._lcAddEmoji=function(e){
+          if(!inp)return;
+          inp.value+=e;inp.focus();
+          if(window._lcTyping)window._lcTyping();
+        };
 
         window._lcTyping=function(){
           if(!lc.connection||lc.status!=='active'||!lc.sessionId)return;
@@ -1153,18 +1176,19 @@
         };
 
         function lcAddMsg(content,senderName,side,ts){
-          const c=document.getElementById('lc-msgs');if(!c)return;
+          // Live-chat messages render in the main conversation stream (#tt-msgs),
+          // using the .lc-msg bubble styles so they sit alongside the bot's.
+          _lcClearTyping();
           const isSup=side!=='u'&&senderName==='Supervisor';
           let tm='';try{tm=new Date(ts||Date.now()).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}catch(e){}
           const wrap=document.createElement('div');
           wrap.className='lc-msg '+(side==='u'?'u':(isSup?'b sup':'b'));
           const nm=side==='u'?'':`<div class="lc-nm">${isSup?'Supervisor':xe(senderName||'Agent')}</div>`;
           wrap.innerHTML=`${nm}<div class="lc-bbl">${xe(content)}</div><div class="lc-tm">${tm}</div>`;
-          c.appendChild(wrap);c.scrollTop=c.scrollHeight;
+          msgs.appendChild(wrap);sd();
         }
 
         window._lcSend=async function(){
-          const inp=document.getElementById('lc-inp');
           const val=(inp?.value||'').trim();
           if(!val||!lc.connection||lc.status!=='active')return;
           inp.value='';lcAddMsg(val,'You','u');
@@ -1173,7 +1197,7 @@
         };
 
         window._lcEnd=async function(){
-          if(!lc.sessionId)return;
+          if(!lc.sessionId||lc._closed)return;
           if(lc.connection&&lc.status==='active'){
             try{await lc.connection.invoke('EndChat',lc.sessionId);}catch(e){}
           }
@@ -1181,18 +1205,26 @@
         };
 
         function lcEndedByCustomer(){
-          lcTeardown();lcShowRating();
+          // Guard: the server echoes ChatEnded back to the customer, so without
+          // this both lcEndedByCustomer (direct) and lcEndedByAgent (echo) would
+          // fire and show the rating card twice.
+          if(lc._closed)return;lc._closed=true;
+          lcTeardown();
+          raw(`<div class="tt-row b"><div class="tt-bbl">Your chat has ended.</div></div>`);sd();
+          lcShowRating();
         }
 
         function lcEndedByAgent(){
+          if(lc._closed)return;lc._closed=true;
           lcTeardown();
           raw(`<div class="tt-row b"><div class="tt-bbl">The agent has ended this chat session.</div></div>`);sd();
           lcShowRating();
         }
 
         function lcTeardown(){
-          const inp=document.getElementById('lc-inp');if(inp)inp.disabled=true;
-          document.querySelectorAll('#lc-chat-wrapper button').forEach(b=>b.disabled=true);
+          // Return the composer to normal bot mode; the bot flow continues after
+          // the rating prompt, so the input stays enabled.
+          _lcExitLiveMode();
           localStorage.removeItem(LC_KEY);
         }
 
@@ -1245,6 +1277,8 @@
         };
 
         function lcPostChatOptions(){
+          // Properly close the old SignalR connection before clearing the reference.
+          if(lc.connection)lc.connection.stop().catch(()=>{});
           lc.sessionId=null;lc.connection=null;lc.status=null;lc.agentName=null;
           qrs([{label:'🤖 Continue with Ask Frankie',fn:()=>{userMsg('Continue');resetLookup();}},{label:'📞 Contact Us',fn:()=>{userMsg('Contact details');showContactDetails();}},{label:'👋 All Done',fn:()=>{dQR();userMsg('All done');goodbye();}}],400);
         }
@@ -1258,6 +1292,7 @@
 
         // ── Session restore function (called from the startup flow) ──────────
         async function lcRestore(savedId,data){
+          lc._closed=false;
           lc.sessionId=savedId;
           lc.status=data.status==='Active'?'active':'queued';
           lc.agentName=data.agentName||null;
@@ -1273,8 +1308,8 @@
           conn.on('MessageReceived',msg=>{
             if(msg.senderType==='Agent'||msg.senderType==='Admin')lcAddMsg(msg.content,msg.senderName,'b',msg.timestamp);
           });
-          conn.on('AgentTyping',()=>{const t=document.getElementById('lc-typing');if(t)t.style.display='flex';});
-          conn.on('AgentStoppedTyping',()=>{const t=document.getElementById('lc-typing');if(t)t.style.display='none';});
+          conn.on('AgentTyping',()=>_lcShowTyping());
+          conn.on('AgentStoppedTyping',()=>_lcClearTyping());
           conn.on('ChatEnded',()=>{lc.status='ended';lcEndedByAgent();});
 
           await conn.start();
@@ -1296,7 +1331,14 @@
           const btn=document.getElementById('tt-snd');
           const inputEl=document.getElementById('tt-inp');
           if(btn)btn.addEventListener('click',function(){handleInput();});
-          if(inputEl)inputEl.addEventListener('keydown',function(e){if(e.key==='Enter')handleInput();});
+          if(inputEl){
+            inputEl.addEventListener('keydown',function(e){if(e.key==='Enter')handleInput();});
+            // Emit typing to the agent only while a live chat is active.
+            inputEl.addEventListener('input',function(){if(lc.status==='active'&&window._lcTyping)window._lcTyping();});
+          }
+          // Populate the (shared) emoji panel once.
+          const panel=document.getElementById('lc-emoji-panel');
+          if(panel)panel.innerHTML=LC_EMOJIS.map(e=>`<button type="button" onclick="window._lcAddEmoji('${e}')" style="background:none;border:none;cursor:pointer;font-size:18px;line-height:1;padding:3px 5px;border-radius:6px">${e}</button>`).join('');
         })();
     </script>
 </body>

@@ -18,6 +18,11 @@ namespace Furdeco_ChatBot.Models
         public int?   CustomerRating { get; set; }   // 1-5 stars
         public bool   IsSupervised { get; set; }     // admin barged in
 
+        /// <summary>JSON snapshot of the looked-up order (consignment, address,
+        /// postcode, delivery date/slot, status, contacts) captured at chat start
+        /// so agents/admins can see order context. Null if no order was looked up.</summary>
+        public string? OrderSnapshot { get; set; }
+
         // Navigation
         public AgentUser?               Agent    { get; set; }
         public ICollection<ChatMessage> Messages { get; set; } = new List<ChatMessage>();

@@ -60,12 +60,35 @@ namespace Furdeco_ChatBot.Controllers
         public async Task<IActionResult> GetActive()
         {
             var sessions = await _sessions.GetActiveSessionsAsync();
-            return Ok(sessions.Select(s => new
+            var lastMsgs = await _sessions.GetLastMessagePerSessionAsync(sessions.Select(s => s.Id).ToList());
+            var now = DateTime.UtcNow;
+
+            return Ok(sessions.Select(s =>
             {
-                s.Id, s.Reference, s.CustomerName, s.Status,
-                s.QueuedAt, s.AcceptedAt,
-                agentName = s.Agent?.Name,
-                agentId   = s.AgentId
+                // Minutes the customer has been waiting for an agent reply
+                // (0 unless the most recent message is from the customer).
+                int awaitingReplyMins = 0;
+                DateTime? lastTs = null;
+                if (lastMsgs.TryGetValue(s.Id, out var lm))
+                {
+                    lastTs = lm.Timestamp;
+                    if (lm.SenderType.Equals("Customer", StringComparison.OrdinalIgnoreCase))
+                        awaitingReplyMins = (int)(now - lm.Timestamp).TotalMinutes;
+                }
+                // Minutes since the last message from anyone (dormant chat).
+                var activityBase = lastTs ?? s.AcceptedAt ?? s.QueuedAt;
+                int lastActivityMins = (int)(now - activityBase).TotalMinutes;
+
+                return new
+                {
+                    s.Id, s.Reference, s.CustomerName, s.Status,
+                    s.QueuedAt, s.AcceptedAt,
+                    orderSnapshot = s.OrderSnapshot,
+                    agentName = s.Agent?.Name,
+                    agentId   = s.AgentId,
+                    awaitingReplyMins,
+                    lastActivityMins
+                };
             }));
         }
 
@@ -79,6 +102,7 @@ namespace Furdeco_ChatBot.Controllers
             {
                 s.Id, s.Reference, s.CustomerName, s.IssueDescription,
                 s.Status, s.QueuedAt, s.AcceptedAt,
+                orderSnapshot = s.OrderSnapshot,
                 agentName = s.Agent?.Name,
                 agentId   = s.AgentId
             }));
