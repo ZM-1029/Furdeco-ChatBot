@@ -314,6 +314,7 @@ namespace Furdeco_ChatBot.Hubs
             await Clients.Group($"session:{sessionId}")
                 .SendAsync("MessageReceived", new
                 {
+                    SessionId  = sessionId,
                     SenderType = "System",
                     SenderName = "System",
                     Content    = $"Chat transferred to {newAgent.Name}",
