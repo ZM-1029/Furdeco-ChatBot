@@ -1074,6 +1074,10 @@
             conn.on('AgentStoppedTyping',()=>_lcClearTyping());
             conn.on('ChatEnded',()=>{lc.status='ended';lcEndedByAgent();});
 
+            conn.onreconnected(async()=>{
+              if(lc.sessionId)try{await conn.invoke('RejoinSession',lc.sessionId);}catch(e){}
+            });
+
             await conn.start();
             const result=await conn.invoke('JoinQueue',pRef||'',pPc||'',customerName,issueDescription,_lcOrderSnapshot());
             lc.sessionId=result.sessionId;
@@ -1311,6 +1315,10 @@
           conn.on('AgentTyping',()=>_lcShowTyping());
           conn.on('AgentStoppedTyping',()=>_lcClearTyping());
           conn.on('ChatEnded',()=>{lc.status='ended';lcEndedByAgent();});
+
+          conn.onreconnected(async()=>{
+            if(lc.sessionId)try{await conn.invoke('RejoinSession',lc.sessionId);}catch(e){}
+          });
 
           await conn.start();
           await conn.invoke('RejoinSession',savedId);
