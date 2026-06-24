@@ -558,7 +558,16 @@
           else botMsg(`Enter your <strong>${pRefType==='order'?'order number':'consignment number'}</strong> or say <em>'talk to a human'</em>.`);
         }
 
-        async function s1(val){if(RE_G.test(val)){await botMsg(`Hello! 😊 Enter your <strong>${pRefType==='order'?'order number':'consignment number'}</strong>.`);return;}pRef=val.toUpperCase().trim();state='lookup_pc';await botMsg("Got it! And your <strong>delivery postcode</strong>?");}
+        async function s1(val){
+          if(RE_G.test(val)){await botMsg(`Hello! 😊 Enter your <strong>${pRefType==='order'?'order number':'consignment number'}</strong>.`);return;}
+          const refWord=pRefType==='order'?'order number':'consignment number';
+          const cleaned=val.trim();
+          // Mitigate free-text before it reaches the GSIT API: a real order/
+          // consignment number has no spaces and is at least 4 characters.
+          if(/\s/.test(cleaned)){await botMsg(`That doesn't look like a <strong>${refWord}</strong> — it shouldn't contain spaces. Please enter your <strong>${refWord}</strong>.`);return;}
+          if(cleaned.length<4){await botMsg(`That doesn't look like a <strong>${refWord}</strong> — it's too short. Please enter your <strong>${refWord}</strong>.`);return;}
+          pRef=cleaned.toUpperCase();state='lookup_pc';await botMsg("Got it! And your <strong>delivery postcode</strong>?");
+        }
         async function s2(val){
           pPc=val.toUpperCase().trim();
           const ldr=ldrMsg('Checking order…');
