@@ -853,15 +853,8 @@
 
         async function humanHandoff(){
           state='done';
-          // ── Live chat guard: OTP verified + order received at warehouse ───
-          if(otpVerified&&order?.order_steps?.received==='Yes'){
-            await startLiveChatFlow();return;
-          }
-          // ── Fallback: show contact details (original behaviour) ───────────
-          await botMsg("Here are our contact details 👤");
-          const el=document.createElement('div');el.className='tt-row b';
-          el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-info">📞 <strong>Phone:</strong> <a href="tel:${CONFIG.SUPPORT_PHONE.replace(/\s/g,'')}" style="color:#1c5a28;font-weight:600">${CONFIG.SUPPORT_PHONE}</a><br>📧 <strong>Email:</strong> ${xe(CONFIG.SUPPORT_EMAIL)}<br>🕐 <strong>Hours:</strong> ${xe(CONFIG.SUPPORT_HOURS)}</div></div>`;
-          await addEl(el,300);qrs([{label:'🤖 Continue with Ask Frankie',fn:()=>{userMsg('Continue');resetLookup();}},{label:'👋 All Done',fn:()=>{dQR();userMsg('All done');goodbye();}}],450);
+          // Always connect the customer to a live agent when they ask for a human.
+          await startLiveChatFlow();
         }
 
         async function cancelFlow(){await botMsg("No problem! ↩️ Nothing changed.");resetLookup();}

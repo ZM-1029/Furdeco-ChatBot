@@ -30,6 +30,8 @@ namespace Furdeco_ChatBot.Controllers
                 t.Tags,
                 // Customer's 1-5 star rating of the source chat (null if not rated)
                 customerRating = t.Session?.CustomerRating,
+                // Agent-selected chat category at resolve time (null if not set)
+                chatType = t.Session?.ChatType,
                 assignedAgent = t.AssignedAgent == null ? null : new
                 {
                     t.AssignedAgent.Id, t.AssignedAgent.Name
@@ -53,6 +55,7 @@ namespace Furdeco_ChatBot.Controllers
                 ticket.CreatedAt, ticket.UpdatedAt, ticket.SlaDeadline,
                 ticket.Tags,
                 customerRating = ticket.Session?.CustomerRating,
+                chatType = ticket.Session?.ChatType,
                 slaBreach = ticket.SlaDeadline < DateTime.UtcNow && ticket.Status != "Resolved",
                 assignedAgent = ticket.AssignedAgent == null ? null : new
                 {

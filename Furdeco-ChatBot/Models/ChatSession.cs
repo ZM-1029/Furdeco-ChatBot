@@ -23,6 +23,10 @@ namespace Furdeco_ChatBot.Models
         /// so agents/admins can see order context. Null if no order was looked up.</summary>
         public string? OrderSnapshot { get; set; }
 
+        /// <summary>Chat category selected by the agent at resolve time
+        /// (e.g. "Order status", "Return", "Damage", or a manual value). Null if not set.</summary>
+        public string? ChatType { get; set; }
+
         // Navigation
         public AgentUser?               Agent    { get; set; }
         public ICollection<ChatMessage> Messages { get; set; } = new List<ChatMessage>();

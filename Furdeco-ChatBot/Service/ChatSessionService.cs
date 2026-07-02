@@ -109,7 +109,7 @@ namespace Furdeco_ChatBot.Service
             return session;
         }
 
-        public async Task<ChatSession?> ResolveAsync(Guid sessionId, string? agentNotes)
+        public async Task<ChatSession?> ResolveAsync(Guid sessionId, string? agentNotes, string? chatType = null)
         {
             var session = await _db.ChatSessions.FindAsync(sessionId);
             if (session == null) return null;
@@ -117,6 +117,8 @@ namespace Furdeco_ChatBot.Service
             session.Status     = "Resolved";
             session.ResolvedAt = DateTime.UtcNow;
             session.AgentNotes = agentNotes;
+            if (!string.IsNullOrWhiteSpace(chatType))
+                session.ChatType = chatType.Trim();
 
             _db.ChatMessages.Add(new ChatMessage
             {

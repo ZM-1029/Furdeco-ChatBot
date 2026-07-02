@@ -50,8 +50,19 @@ builder.Services.AddHostedService<AutoAssignHostedService>();
 // SLA breach monitor
 builder.Services.AddHostedService<SlaMonitorHostedService>();
 
-// SignalR
-builder.Services.AddSignalR();
+// SignalR — use Azure SignalR Service when a connection string is configured;
+// otherwise fall back to in-process SignalR so the app still starts (hub logic unchanged).
+var azureSignalRConn = builder.Configuration["Azure:SignalR:ConnectionString"];
+var signalRBuilder = builder.Services.AddSignalR();
+if (!string.IsNullOrWhiteSpace(azureSignalRConn))
+{
+    signalRBuilder.AddAzureSignalR(azureSignalRConn);
+    Console.WriteLine("[SignalR] Using Azure SignalR Service.");
+}
+else
+{
+    Console.WriteLine("[SignalR] Azure SignalR connection string not configured — using in-process SignalR.");
+}
 
 // JWT authentication
 var jwtSection = builder.Configuration.GetSection("Jwt");

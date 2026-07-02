@@ -287,9 +287,9 @@ namespace Furdeco_ChatBot.Hubs
             => await Clients.Group($"session:{sessionId}").SendAsync("AgentStoppedTyping");
 
         /// <summary>Agent resolves the chat — auto-creates a ticket.</summary>
-        public async Task ResolveChat(Guid sessionId, Guid agentId, string? notes)
+        public async Task ResolveChat(Guid sessionId, Guid agentId, string? notes, string? chatType = null)
         {
-            var session = await _sessions.ResolveAsync(sessionId, notes);
+            var session = await _sessions.ResolveAsync(sessionId, notes, chatType);
             if (session == null) return;
 
             await Clients.Group($"session:{sessionId}").SendAsync("ChatEnded");
