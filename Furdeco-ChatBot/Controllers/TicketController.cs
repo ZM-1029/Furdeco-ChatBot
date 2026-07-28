@@ -18,7 +18,7 @@ namespace Furdeco_ChatBot.Controllers
         public async Task<IActionResult> GetAll(
             [FromQuery] string? status,
             [FromQuery] string? priority,
-            [FromQuery] Guid?   agentId,
+            [FromQuery] int?    agentId,
             [FromQuery] string? search)
         {
             var tickets = await _tickets.GetAllAsync(status, priority, agentId, search);
@@ -32,9 +32,9 @@ namespace Furdeco_ChatBot.Controllers
                 customerRating = t.Session?.CustomerRating,
                 // Agent-selected chat category at resolve time (null if not set)
                 chatType = t.Session?.ChatType,
-                assignedAgent = t.AssignedAgent == null ? null : new
+                assignedAgent = t.AssignedAgentId == null ? null : new
                 {
-                    t.AssignedAgent.Id, t.AssignedAgent.Name
+                    Id = t.AssignedAgentId, Name = t.AssignedAgentName
                 },
                 // SLA breach flag — useful for UI badge
                 slaBreach = t.SlaDeadline < DateTime.UtcNow && t.Status != "Resolved"
@@ -57,9 +57,9 @@ namespace Furdeco_ChatBot.Controllers
                 customerRating = ticket.Session?.CustomerRating,
                 chatType = ticket.Session?.ChatType,
                 slaBreach = ticket.SlaDeadline < DateTime.UtcNow && ticket.Status != "Resolved",
-                assignedAgent = ticket.AssignedAgent == null ? null : new
+                assignedAgent = ticket.AssignedAgentId == null ? null : new
                 {
-                    ticket.AssignedAgent.Id, ticket.AssignedAgent.Name
+                    Id = ticket.AssignedAgentId, Name = ticket.AssignedAgentName
                 },
                 messages = ticket.Session?.Messages
                     .Where(m => !m.IsWhisper)
@@ -94,7 +94,7 @@ namespace Furdeco_ChatBot.Controllers
         public async Task<IActionResult> Update(Guid id, [FromBody] UpdateTicketRequest req)
         {
             var ticket = await _tickets.UpdateAsync(id, req.Status, req.Priority,
-                req.AssignedAgentId, req.Tags);
+                req.AssignedAgentId, req.AssignedAgentName, req.Tags);
             if (ticket == null) return NotFound();
             return Ok(new { ticket.Id, ticket.Status, ticket.Priority, ticket.UpdatedAt });
         }
@@ -103,7 +103,8 @@ namespace Furdeco_ChatBot.Controllers
     public record UpdateTicketRequest(
         string?  Status,
         string?  Priority,
-        Guid?    AssignedAgentId,
+        int?     AssignedAgentId,
+        string?  AssignedAgentName,
         string[]? Tags);
 
     public record AddNoteRequest(string Content);

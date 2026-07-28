@@ -10,12 +10,9 @@ namespace Furdeco_ChatBot.Models
 
         /// <summary>"Admin" | "Agent" | "All"</summary>
         public string TargetRole    { get; set; } = null!;
-        public Guid?  TargetAgentId { get; set; }
+        public int?   TargetAgentId { get; set; }
 
         public bool   IsRead        { get; set; }
         public DateTime CreatedAt   { get; set; } = DateTime.UtcNow;
-
-        // Navigation
-        public AgentUser? TargetAgent { get; set; }
     }
 }

@@ -7,7 +7,7 @@ namespace Furdeco_ChatBot.Controllers
 {
     [Route("api/settings")]
     [ApiController]
-    [Authorize]
+   // [Authorize]
     public class SettingsController : ControllerBase
     {
         private readonly SettingsService _settings;

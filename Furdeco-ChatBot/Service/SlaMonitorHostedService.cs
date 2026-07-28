@@ -135,7 +135,7 @@ namespace Furdeco_ChatBot.Service
 
                 await notifs.CreateAsync(
                     "UnansweredChat",
-                    $"{s.Agent?.Name ?? "The assigned agent"} hasn't replied to {s.CustomerName} for {mins} min.",
+                    $"{s.AgentName ?? "The assigned agent"} hasn't replied to {s.CustomerName} for {mins} min.",
                     "Admin");
                 _unansweredAlerted.Add(s.Id);
                 raised++;

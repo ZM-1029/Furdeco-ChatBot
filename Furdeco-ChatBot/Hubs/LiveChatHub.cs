@@ -1,38 +1,32 @@
 using Furdeco_ChatBot.Service;
 using Microsoft.AspNetCore.SignalR;
-using System.Collections.Concurrent;
-using System.Security.Claims;
 
 namespace Furdeco_ChatBot.Hubs
 {
     /// <summary>
-    /// Single SignalR hub for all real-time live-chat events.
+    /// Single SignalR hub for customer-facing real-time live-chat events.
+    ///
+    /// The agent/admin side (login, accepting chats, presence, assignment,
+    /// transfers, supervision) is now handled by WALMS — those methods have
+    /// been removed from this hub.
     ///
     /// Groups used:
-    ///   "admins"           → all connected admin users
-    ///   "agents"           → all connected agents
-    ///   "agent:{agentId}"  → one specific agent (private channel)
+    ///   "admins"           → admin listeners (WALMS-side notifications)
+    ///   "agents"           → agent listeners (WALMS-side notifications)
     ///   "session:{id}"     → customer + assigned agent for one chat
     /// </summary>
     public class LiveChatHub : Hub
     {
         private readonly ChatSessionService  _sessions;
-        private readonly AgentUserService    _agents;
         private readonly TicketService       _tickets;
         private readonly NotificationService _notifs;
-        private readonly AutoAssignTracker   _autoAssign;
 
-        // ConnectionId → agentId (for online presence tracking)
-        private static readonly ConcurrentDictionary<string, Guid> _agentConnections = new();
-
-        public LiveChatHub(ChatSessionService sessions, AgentUserService agents,
-            TicketService tickets, NotificationService notifs, AutoAssignTracker autoAssign)
+        public LiveChatHub(ChatSessionService sessions,
+            TicketService tickets, NotificationService notifs)
         {
-            _sessions   = sessions;
-            _agents     = agents;
-            _tickets    = tickets;
-            _notifs     = notifs;
-            _autoAssign = autoAssign;
+            _sessions = sessions;
+            _tickets  = tickets;
+            _notifs   = notifs;
         }
 
         // ── CUSTOMER METHODS ─────────────────────────────────────────
@@ -107,11 +101,6 @@ namespace Furdeco_ChatBot.Hubs
             {
                 var ticket = await _tickets.CreateFromSessionAsync(session);
                 await Clients.Group("admins").SendAsync("TicketCreated", new { ticket.Id });
-                var agentSessions = await _sessions.GetSessionsByAgentAsync(session.AgentId.Value);
-                var newStatus = agentSessions.Count == 0 ? "Online" : "Busy";
-                await _agents.UpdateStatusAsync(session.AgentId.Value, newStatus);
-                await Clients.Group("admins").SendAsync("AgentStatusChanged",
-                    session.AgentId, newStatus);
             }
 
             await Clients.Group("admins").SendAsync("SessionResolved", sessionId);
@@ -129,7 +118,7 @@ namespace Furdeco_ChatBot.Hubs
             return new
             {
                 session.Status,
-                agentName    = session.Agent?.Name,
+                agentName    = session.AgentName,
                 queuePosition = session.Status == "Queued"
                     ? await _sessions.GetQueuePositionAsync(sessionId)
                     : (int?)null,
@@ -143,279 +132,6 @@ namespace Furdeco_ChatBot.Hubs
             };
         }
 
-        // ── AGENT METHODS ────────────────────────────────────────────
-
-        /// <summary>
-        /// Agent connects. Preserves a deliberately-chosen status (Online/Busy/Away);
-        /// only flips to Online when the agent was Offline — so a manual status
-        /// survives a page refresh instead of being reset on every reconnect.
-        /// </summary>
-        public async Task AgentConnect(Guid agentId)
-        {
-            _agentConnections[Context.ConnectionId] = agentId;
-            await Groups.AddToGroupAsync(Context.ConnectionId, "agents");
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"agent:{agentId}");
-
-            var agent = await _agents.GetByIdAsync(agentId);
-            var effective = string.IsNullOrEmpty(agent?.Status) ? "Offline" : agent!.Status;
-            if (effective == "Offline")
-            {
-                effective = "Online";
-                await _agents.UpdateStatusAsync(agentId, effective);
-            }
-
-            // Notify admins AND the agent's own UI so the status selector reflects
-            // the real, server-side value (not a hardcoded default).
-            await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, effective);
-            await Clients.Caller.SendAsync("AgentStatusChanged", agentId, effective);
-
-            // Send current queue snapshot to newly connected agent
-            var snapshot = await BuildQueueSnapshot();
-            await Clients.Caller.SendAsync("QueueUpdated", snapshot);
-        }
-
-        /// <summary>Agent changes their own status.</summary>
-        public async Task UpdateStatus(Guid agentId, string status)
-        {
-            await _agents.UpdateStatusAsync(agentId, status);
-            await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, status);
-            await Clients.Group("agents").SendAsync("AgentStatusChanged", agentId, status);
-        }
-
-        /// <summary>
-        /// Agent accepts the next chat from the queue.
-        /// Uses FOR UPDATE SKIP LOCKED to prevent race conditions.
-        /// </summary>
-        public async Task<object?> AcceptNextChat(Guid agentId)
-        {
-            var session = await _sessions.DequeueNextAsync();
-            if (session == null)
-            {
-                await Clients.Caller.SendAsync("QueueEmpty");
-                return null;
-            }
-
-            var agent = await _agents.GetByIdAsync(agentId);
-            if (agent == null) return null;
-
-            await _sessions.AssignToAgentAsync(session.Id, agentId, agent.Name);
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{session.Id}");
-
-            // Notify customer
-            await Clients.Group($"session:{session.Id}")
-                .SendAsync("AgentJoined", agent.Name);
-
-            // Update admin view
-            await Clients.Group("admins").SendAsync("SessionAssigned", session.Id, agentId);
-
-            // Update queue for everyone
-            var snapshot = await BuildQueueSnapshot();
-            await Clients.Group("agents").SendAsync("QueueUpdated", snapshot);
-            await Clients.Group("admins").SendAsync("QueueUpdated", snapshot);
-
-            // Mark agent Busy
-            await _agents.UpdateStatusAsync(agentId, "Busy");
-            await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, "Busy");
-
-            return new { session.Id, session.Reference, session.CustomerName, session.IssueDescription };
-        }
-
-        /// <summary>
-        /// Agent accepts a SPECIFIC queued chat (cherry-pick from the waiting
-        /// list) rather than the oldest. Returns null if the chat was already
-        /// taken by another agent.
-        /// </summary>
-        public async Task<object?> AcceptChat(Guid sessionId, Guid agentId)
-        {
-            var session = await _sessions.ClaimSessionAsync(sessionId);
-            if (session == null)
-            {
-                await Clients.Caller.SendAsync("ChatAlreadyTaken", sessionId);
-                return null;
-            }
-
-            var agent = await _agents.GetByIdAsync(agentId);
-            if (agent == null) return null;
-
-            await _sessions.AssignToAgentAsync(session.Id, agentId, agent.Name);
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{session.Id}");
-
-            // Notify customer
-            await Clients.Group($"session:{session.Id}")
-                .SendAsync("AgentJoined", agent.Name);
-
-            // Update admin view
-            await Clients.Group("admins").SendAsync("SessionAssigned", session.Id, agentId);
-
-            // Update queue for everyone
-            var snapshot = await BuildQueueSnapshot();
-            await Clients.Group("agents").SendAsync("QueueUpdated", snapshot);
-            await Clients.Group("admins").SendAsync("QueueUpdated", snapshot);
-
-            // Mark agent Busy
-            await _agents.UpdateStatusAsync(agentId, "Busy");
-            await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, "Busy");
-
-            return new { session.Id, session.Reference, session.CustomerName, session.IssueDescription };
-        }
-
-        /// <summary>Agent sends a message to the customer.</summary>
-        public async Task AgentSendMessage(Guid sessionId, Guid agentId, string content)
-        {
-            var agent = await _agents.GetByIdAsync(agentId);
-            if (agent == null) return;
-
-            // A first reply satisfies an auto-assign offer (so it isn't reassigned).
-            _autoAssign.MarkReplied(sessionId);
-
-            var msg = await _sessions.AddMessageAsync(sessionId, "Agent", agent.Name, content);
-
-            await Clients.Group($"session:{sessionId}")
-                .SendAsync("MessageReceived", new
-                {
-                    msg.Id, msg.SessionId, msg.SenderType, msg.SenderName,
-                    msg.Content, msg.IsWhisper,
-                    timestamp = msg.Timestamp
-                });
-        }
-
-        /// <summary>Agent typing indicator.</summary>
-        public async Task AgentTyping(Guid sessionId)
-            => await Clients.Group($"session:{sessionId}").SendAsync("AgentTyping");
-
-        public async Task AgentStoppedTyping(Guid sessionId)
-            => await Clients.Group($"session:{sessionId}").SendAsync("AgentStoppedTyping");
-
-        /// <summary>Agent resolves the chat — auto-creates a ticket.</summary>
-        public async Task ResolveChat(Guid sessionId, Guid agentId, string? notes, string? chatType = null)
-        {
-            var session = await _sessions.ResolveAsync(sessionId, notes, chatType);
-            if (session == null) return;
-
-            await Clients.Group($"session:{sessionId}").SendAsync("ChatEnded");
-            var ticket = await _tickets.CreateFromSessionAsync(session);
-            await Clients.Group("admins").SendAsync("TicketCreated", new { ticket.Id });
-
-            var agentSessions = await _sessions.GetSessionsByAgentAsync(agentId);
-            var newStatus = agentSessions.Count == 0 ? "Online" : "Busy";
-            await _agents.UpdateStatusAsync(agentId, newStatus);
-            await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, newStatus);
-            await Clients.Group("admins").SendAsync("SessionResolved", sessionId);
-        }
-
-        /// <summary>Agent transfers the chat to another agent.</summary>
-        public async Task TransferChat(Guid sessionId, Guid newAgentId)
-        {
-            var newAgent = await _agents.GetByIdAsync(newAgentId);
-            if (newAgent == null) return;
-
-            await _sessions.TransferAsync(sessionId, newAgentId, newAgent.Name);
-
-            await Clients.Group($"session:{sessionId}")
-                .SendAsync("MessageReceived", new
-                {
-                    SessionId  = sessionId,
-                    SenderType = "System",
-                    SenderName = "System",
-                    Content    = $"Chat transferred to {newAgent.Name}",
-                    IsWhisper  = false,
-                    Timestamp  = DateTime.UtcNow
-                });
-
-            await Clients.Group($"agent:{newAgentId}").SendAsync("ChatTransferred", new
-            {
-                SessionId    = sessionId,
-                AgentName    = newAgent.Name
-            });
-
-            await _notifs.CreateAsync("ChatTransferred",
-                $"Chat transferred to you from another agent", "Agent", newAgentId);
-        }
-
-        // ── ADMIN METHODS ────────────────────────────────────────────
-
-        /// <summary>Admin joins admin room — receives all events and state dump.</summary>
-        public async Task JoinAdminRoom()
-        {
-            await Groups.AddToGroupAsync(Context.ConnectionId, "admins");
-
-            var activeSessions = await _sessions.GetActiveSessionsAsync();
-            var queue          = await _sessions.GetQueueAsync();
-            var allAgents      = await _agents.GetAllAsync();
-
-            await Clients.Caller.SendAsync("AdminStateDump", new
-            {
-                activeSessions = activeSessions.Select(MapSession),
-                queue          = queue.Select(MapSession),
-                agents         = allAgents.Select(MapAgent)
-            });
-        }
-
-        /// <summary>Admin sends a private whisper to an agent (not visible to customer).</summary>
-        public async Task WhisperToAgent(Guid sessionId, Guid agentId, string content)
-        {
-            await _sessions.AddMessageAsync(sessionId, "Admin", "Supervisor", content, isWhisper: true);
-
-            await Clients.Group($"agent:{agentId}").SendAsync("WhisperReceived", new
-            {
-                SessionId = sessionId,
-                Content   = content,
-                Timestamp = DateTime.UtcNow
-            });
-        }
-
-        /// <summary>
-        /// Admin (supervisor) sends a message to the customer after barging in.
-        /// Posted as an agent-side message so the customer's chat renders it on the
-        /// support side, but labelled "Supervisor" so it's distinguishable.
-        /// </summary>
-        public async Task SupervisorSendMessage(Guid sessionId, string content)
-        {
-            var msg = await _sessions.AddMessageAsync(sessionId, "Agent", "Supervisor", content);
-
-            await Clients.Group($"session:{sessionId}")
-                .SendAsync("MessageReceived", new
-                {
-                    msg.Id, msg.SessionId, msg.SenderType, msg.SenderName,
-                    msg.Content, msg.IsWhisper,
-                    timestamp = msg.Timestamp
-                });
-        }
-
-        /// <summary>Admin barges into a session — their messages go to the customer.</summary>
-        public async Task BargeIn(Guid sessionId)
-        {
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{sessionId}");
-
-            var session = await _sessions.GetSessionAsync(sessionId);
-            if (session != null)
-            {
-                session.IsSupervised = true;
-                // Persist the supervised flag (direct EF update via session service)
-            }
-
-            await Clients.Group($"session:{sessionId}")
-                .SendAsync("SupervisorJoined", "A supervisor has joined to assist.");
-        }
-
-        // ── DISCONNECT ───────────────────────────────────────────────
-
-        public override async Task OnDisconnectedAsync(Exception? exception)
-        {
-            if (_agentConnections.TryRemove(Context.ConnectionId, out var agentId))
-            {
-                await _agents.UpdateStatusAsync(agentId, "Offline");
-                await Clients.Group("admins").SendAsync("AgentStatusChanged", agentId, "Offline");
-
-                // Notify admin if agent had active chats
-                var activeSessions = await _sessions.GetSessionsByAgentAsync(agentId);
-                if (activeSessions.Count > 0)
-                    await _notifs.CreateAsync("AgentOffline",
-                        $"An agent went offline with {activeSessions.Count} active chat(s)", "Admin");
-            }
-            await base.OnDisconnectedAsync(exception);
-        }
-
         // ── HELPERS ──────────────────────────────────────────────────
 
         private async Task<IEnumerable<object>> BuildQueueSnapshot()
@@ -427,20 +143,5 @@ namespace Furdeco_ChatBot.Hubs
                 s.QueuedAt, position = i + 1
             });
         }
-
-        private static object MapSession(Models.ChatSession s) => new
-        {
-            s.Id, s.Reference, s.CustomerName, s.IssueDescription,
-            s.Status, s.QueuedAt, s.AcceptedAt,
-            orderSnapshot = s.OrderSnapshot,
-            agentName = s.Agent?.Name,
-            agentId   = s.AgentId
-        };
-
-        private static object MapAgent(Models.AgentUser a) => new
-        {
-            a.Id, a.Name, a.Email, a.Role, a.Status,
-            a.AvatarUrl, a.LastSeenAt
-        };
     }
 }

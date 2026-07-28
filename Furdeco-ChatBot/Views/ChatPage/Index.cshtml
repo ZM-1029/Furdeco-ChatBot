@@ -476,7 +476,7 @@
         // ── Live Chat state (additive — does not alter any existing variables) ─
         const LC_KEY='lc_sessionId';
         const LC_EMOJIS=['😀','😃','😄','😁','😅','😂','🙂','😊','😉','😍','😎','🤔','👍','👎','👌','🙏','👏','🙌','💪','🎉','✅','❌','❤️','🔥','⭐','💯','😢','😡','🤝','👋','🚀','💡'];
-        let otpVerified=false;
+        let otpVerified=false,otpLocked=false;
         let lc={sessionId:null,connection:null,status:null,agentName:null};
         // ─────────────────────────────────────────────────────────────────────
         const msgs=document.getElementById('tt-msgs');
@@ -726,7 +726,7 @@
             await showOrder();
           }catch(e){
             ldr.remove();otpAttempts++;state='otp_verify';
-            if(otpAttempts>=3){await botMsg("❌ Too many attempts.");qrs([{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}},{label:'🔄 Start Over',fn:()=>{userMsg('Start over');resetLookup();}}],400);return;}
+            if(otpAttempts>=3){otpLocked=true;await botMsg("❌ Too many attempts. For your security we can't verify your identity right now. Please use our contact details, or start over to try again.");qrs([{label:'📞 Contact Us',fn:()=>{dQR();userMsg('Contact details');showContactDetails();}},{label:'🔄 Start Over',fn:()=>{userMsg('Start over');resetLookup();}}],400);return;}
             const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
             digits.forEach(d=>{d.classList.add('error');setTimeout(()=>d.classList.remove('error'),500);});
             digits.forEach(d=>{d.disabled=false;d.value='';d.classList.remove('filled');});
@@ -852,6 +852,9 @@
         }
 
         async function humanHandoff(){
+          // If OTP verification was exhausted, identity is unverified — do not
+          // connect to a live agent (covers both the button and typed "agent"/"human").
+          if(otpLocked){await botMsg("For your security we're unable to connect you to an agent until your identity is verified. Please use our contact details below.");showContactDetails();return;}
           state='done';
           // Always connect the customer to a live agent when they ask for a human.
           await startLiveChatFlow();
@@ -863,7 +866,7 @@
           setTimeout(async()=>{await botMsg("Anything else I can help with?",0);qrs([{label:'🔍 Track Another',fn:()=>{userMsg('Track another');resetLookup();}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}},{label:'👋 All Done',fn:()=>{dQR();userMsg('All done');goodbye();}}],350);state='post_action';},ms);
         }
 
-        function resetLookup(){order=null;action=null;pRef=null;pPc=null;pRefType='consignment';otpEmail=null;otpType='email';otpIdentifier=null;otpAttempts=0;otpVerified=false;clearInterval(resendTimer);state='lookup_type';setStep('ref');botMsg('How would you like to track your order?');qrs([{label:'📦 Consignment Number',fn:()=>{pRefType='consignment';userMsg('Consignment Number');state='lookup';setStep('ref');botMsg('Please enter your <strong>consignment number</strong>.');}},{label:'🛒 Order Number',fn:()=>{pRefType='order';userMsg('Order Number');state='lookup';setStep('ref');botMsg('Please enter your <strong>order number</strong>.');}}]);}
+        function resetLookup(){order=null;action=null;pRef=null;pPc=null;pRefType='consignment';otpEmail=null;otpType='email';otpIdentifier=null;otpAttempts=0;otpVerified=false;otpLocked=false;clearInterval(resendTimer);state='lookup_type';setStep('ref');botMsg('How would you like to track your order?');qrs([{label:'📦 Consignment Number',fn:()=>{pRefType='consignment';userMsg('Consignment Number');state='lookup';setStep('ref');botMsg('Please enter your <strong>consignment number</strong>.');}},{label:'🛒 Order Number',fn:()=>{pRefType='order';userMsg('Order Number');state='lookup';setStep('ref');botMsg('Please enter your <strong>order number</strong>.');}}]);}
 
         async function goodbye(){state='done';await botMsg(`Thanks for using <strong>Ask Frankie</strong>! 👋<br>📞 ${CONFIG.SUPPORT_PHONE} · 📧 ${CONFIG.SUPPORT_EMAIL}`);}
 
@@ -1204,10 +1207,15 @@
 
         window._lcEnd=async function(){
           if(!lc.sessionId||lc._closed)return;
-          if(lc.connection&&lc.status==='active'){
+          const wasActive=lc.connection&&lc.status==='active';
+          lc.status='ended';
+          // Show the customer-ended message FIRST so it sets the lc._closed guard
+          // before the server's echoed ChatEnded arrives — otherwise the echo
+          // (lcEndedByAgent) wins the race and wrongly says "the agent has ended…".
+          lcEndedByCustomer();
+          if(wasActive){
             try{await lc.connection.invoke('EndChat',lc.sessionId);}catch(e){}
           }
-          lc.status='ended';lcEndedByCustomer();
         };
 
         function lcEndedByCustomer(){

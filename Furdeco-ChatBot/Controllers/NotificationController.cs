@@ -7,7 +7,7 @@ namespace Furdeco_ChatBot.Controllers
 {
     [Route("api/notifications")]
     [ApiController]
-    [Authorize]
+    //[Authorize]
     public class NotificationController : ControllerBase
     {
         private readonly NotificationService _notifs;
@@ -19,7 +19,7 @@ namespace Furdeco_ChatBot.Controllers
         public async Task<IActionResult> GetAll()
         {
             var (id, role) = GetCaller();
-            if (id == Guid.Empty) return Unauthorized();
+            if (id == 0) return Unauthorized();
 
             var notifs = await _notifs.GetForUserAsync(id, role);
             return Ok(notifs.Select(n => new
@@ -41,16 +41,16 @@ namespace Furdeco_ChatBot.Controllers
         public async Task<IActionResult> MarkAllRead()
         {
             var (id, _) = GetCaller();
-            if (id == Guid.Empty) return Unauthorized();
+            if (id == 0) return Unauthorized();
             await _notifs.MarkAllReadAsync(id);
             return Ok();
         }
 
-        private (Guid id, string role) GetCaller()
+        private (int id, string role) GetCaller()
         {
-            var idStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var idStr = User.FindFirstValue("UserId");
             var role  = User.FindFirstValue(ClaimTypes.Role) ?? "Agent";
-            return Guid.TryParse(idStr, out var id) ? (id, role) : (Guid.Empty, role);
+            return int.TryParse(idStr, out var id) ? (id, role) : (0, role);
         }
     }
 }

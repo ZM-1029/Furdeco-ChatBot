@@ -88,12 +88,13 @@ namespace Furdeco_ChatBot.Service
 
         // ── Session lifecycle ────────────────────────────────────────
 
-        public async Task<ChatSession?> AssignToAgentAsync(Guid sessionId, Guid agentId, string agentName)
+        public async Task<ChatSession?> AssignToAgentAsync(Guid sessionId, int agentId, string agentName)
         {
             var session = await _db.ChatSessions.FindAsync(sessionId);
             if (session == null) return null;
 
             session.AgentId     = agentId;
+            session.AgentName   = agentName;
             session.Status      = "Active";
             session.AcceptedAt  = DateTime.UtcNow;
 
@@ -143,12 +144,13 @@ namespace Furdeco_ChatBot.Service
             return session;
         }
 
-        public async Task<ChatSession?> TransferAsync(Guid sessionId, Guid newAgentId, string newAgentName)
+        public async Task<ChatSession?> TransferAsync(Guid sessionId, int newAgentId, string newAgentName)
         {
             var session = await _db.ChatSessions.FindAsync(sessionId);
             if (session == null) return null;
 
-            session.AgentId = newAgentId;
+            session.AgentId   = newAgentId;
+            session.AgentName = newAgentName;
             _db.ChatMessages.Add(new ChatMessage
             {
                 SessionId  = sessionId,
@@ -193,12 +195,10 @@ namespace Furdeco_ChatBot.Service
         public async Task<ChatSession?> GetSessionAsync(Guid sessionId)
             => await _db.ChatSessions
                 .Include(s => s.Messages.OrderBy(m => m.Timestamp))
-                .Include(s => s.Agent)
                 .FirstOrDefaultAsync(s => s.Id == sessionId);
 
         public async Task<List<ChatSession>> GetActiveSessionsAsync()
             => await _db.ChatSessions
-                .Include(s => s.Agent)
                 .Where(s => s.Status == "Active")
                 .OrderBy(s => s.AcceptedAt)
                 .ToListAsync();
@@ -225,9 +225,8 @@ namespace Furdeco_ChatBot.Service
                     });
         }
 
-        public async Task<List<ChatSession>> GetSessionsByAgentAsync(Guid agentId)
+        public async Task<List<ChatSession>> GetSessionsByAgentAsync(int agentId)
             => await _db.ChatSessions
-                .Include(s => s.Agent)
                 .Where(s => s.AgentId == agentId && s.Status == "Active")
                 .OrderBy(s => s.AcceptedAt)
                 .ToListAsync();
@@ -293,7 +292,7 @@ namespace Furdeco_ChatBot.Service
         /// series for the last <paramref name="days"/> days. Pass <paramref name="agentId"/> to scope
         /// to one agent, or null for workspace-wide.
         /// </summary>
-        public async Task<object> GetSessionMetricsAsync(Guid? agentId, int days)
+        public async Task<object> GetSessionMetricsAsync(int? agentId, int days)
         {
             if (days < 1) days = 1;
             var since = DateTime.UtcNow.Date.AddDays(-(days - 1));

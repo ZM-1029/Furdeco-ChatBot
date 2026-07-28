@@ -25,7 +25,7 @@ namespace Furdeco_ChatBot.Controllers
                 session.Status,
                 session.Reference,
                 session.CustomerName,
-                agentName     = session.Agent?.Name,
+                agentName     = session.AgentName,
                 agentId       = session.AgentId,
                 queuePosition = session.Status == "Queued"
                     ? await _sessions.GetQueuePositionAsync(id)
@@ -84,7 +84,7 @@ namespace Furdeco_ChatBot.Controllers
                     s.Id, s.Reference, s.CustomerName, s.Status,
                     s.QueuedAt, s.AcceptedAt,
                     orderSnapshot = s.OrderSnapshot,
-                    agentName = s.Agent?.Name,
+                    agentName = s.AgentName,
                     agentId   = s.AgentId,
                     awaitingReplyMins,
                     lastActivityMins
@@ -93,9 +93,9 @@ namespace Furdeco_ChatBot.Controllers
         }
 
         // GET /api/livechat/sessions/agent/{agentId}  (Agent)
-        [HttpGet("sessions/agent/{agentId:guid}")]
+        [HttpGet("sessions/agent/{agentId:int}")]
         [Authorize]
-        public async Task<IActionResult> GetAgentSessions(Guid agentId)
+        public async Task<IActionResult> GetAgentSessions(int agentId)
         {
             var sessions = await _sessions.GetSessionsByAgentAsync(agentId);
             return Ok(sessions.Select(s => new
@@ -103,7 +103,7 @@ namespace Furdeco_ChatBot.Controllers
                 s.Id, s.Reference, s.CustomerName, s.IssueDescription,
                 s.Status, s.QueuedAt, s.AcceptedAt,
                 orderSnapshot = s.OrderSnapshot,
-                agentName = s.Agent?.Name,
+                agentName = s.AgentName,
                 agentId   = s.AgentId
             }));
         }

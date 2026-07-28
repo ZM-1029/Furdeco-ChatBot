@@ -6,7 +6,7 @@ namespace Furdeco_ChatBot.Controllers
 {
     [Route("api/canned-replies")]
     [ApiController]
-    [Authorize]
+    //[Authorize]
     public class CannedReplyController : ControllerBase
     {
         private readonly CannedReplyService _replies;

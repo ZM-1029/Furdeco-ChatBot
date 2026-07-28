@@ -18,7 +18,7 @@ namespace Furdeco_ChatBot.Service
         }
 
         public async Task CreateAsync(string type, string message,
-            string targetRole, Guid? targetAgentId = null)
+            string targetRole, int? targetAgentId = null)
         {
             var notif = new Notification
             {
@@ -42,7 +42,7 @@ namespace Furdeco_ChatBot.Service
                 await _hub.Clients.All.SendAsync("NotificationReceived", payload);
         }
 
-        public async Task<List<Notification>> GetForUserAsync(Guid agentId, string role)
+        public async Task<List<Notification>> GetForUserAsync(int agentId, string role)
         {
             var q = _db.Notifications.AsQueryable();
             if (role == "Admin")
@@ -65,7 +65,7 @@ namespace Furdeco_ChatBot.Service
             await _db.SaveChangesAsync();
         }
 
-        public async Task MarkAllReadAsync(Guid agentId)
+        public async Task MarkAllReadAsync(int agentId)
         {
             // ExecuteUpdateAsync requires EF Core 7+; use load-and-save for EF Core 6 compat
             var unread = await _db.Notifications

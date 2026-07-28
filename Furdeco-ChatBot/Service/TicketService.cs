@@ -21,6 +21,7 @@ namespace Furdeco_ChatBot.Service
                 Status          = "Open",
                 Priority        = "Medium",
                 AssignedAgentId = session.AgentId,
+                AssignedAgentName = session.AgentName,
                 CustomerName    = session.CustomerName,
                 Reference       = session.Reference,
                 CreatedAt       = DateTime.UtcNow,
@@ -35,10 +36,9 @@ namespace Furdeco_ChatBot.Service
         // ── Queries ──────────────────────────────────────────────────
 
         public async Task<List<Ticket>> GetAllAsync(string? status = null, string? priority = null,
-            Guid? agentId = null, string? search = null)
+            int? agentId = null, string? search = null)
         {
             var q = _db.Tickets
-                .Include(t => t.AssignedAgent)
                 .Include(t => t.Session)
                 .AsQueryable();
 
@@ -55,7 +55,6 @@ namespace Furdeco_ChatBot.Service
 
         public async Task<Ticket?> GetByIdAsync(Guid id)
             => await _db.Tickets
-                .Include(t => t.AssignedAgent)
                 .Include(t => t.Session)
                     .ThenInclude(s => s.Messages)
                 .Include(t => t.Notes)
@@ -78,14 +77,18 @@ namespace Furdeco_ChatBot.Service
         // ── Update ───────────────────────────────────────────────────
 
         public async Task<Ticket?> UpdateAsync(Guid id, string? status, string? priority,
-            Guid? assignedAgentId, string[]? tags)
+            int? assignedAgentId, string? assignedAgentName, string[]? tags)
         {
             var ticket = await _db.Tickets.FindAsync(id);
             if (ticket == null) return null;
 
             if (status          != null) ticket.Status          = status;
             if (priority        != null) ticket.Priority        = priority;
-            if (assignedAgentId != null) ticket.AssignedAgentId = assignedAgentId;
+            if (assignedAgentId != null)
+            {
+                ticket.AssignedAgentId   = assignedAgentId;
+                ticket.AssignedAgentName = assignedAgentName;
+            }
             if (tags            != null) ticket.Tags            = tags;
             ticket.UpdatedAt = DateTime.UtcNow;
 

@@ -13,7 +13,8 @@ namespace Furdeco_ChatBot.Models
         /// <summary>"Low" | "Medium" | "High" | "Urgent"</summary>
         public string Priority        { get; set; } = "Medium";
 
-        public Guid?  AssignedAgentId { get; set; }
+        public int?   AssignedAgentId { get; set; }
+        public string? AssignedAgentName { get; set; }
         public string CustomerName    { get; set; } = null!;
         public string Reference       { get; set; } = null!;
 
@@ -28,7 +29,6 @@ namespace Furdeco_ChatBot.Models
         public string[] Tags          { get; set; } = Array.Empty<string>();
 
         // Navigation
-        public AgentUser?          AssignedAgent { get; set; }
         public ChatSession?        Session       { get; set; }
         public ICollection<TicketNote> Notes     { get; set; } = new List<TicketNote>();
     }

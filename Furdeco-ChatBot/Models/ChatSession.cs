@@ -10,7 +10,8 @@ namespace Furdeco_ChatBot.Models
         /// <summary>"Queued" | "Active" | "Resolved" | "Abandoned" | "Transferred"</summary>
         public string Status       { get; set; } = "Queued";
 
-        public Guid?  AgentId      { get; set; }
+        public int?   AgentId      { get; set; }
+        public string? AgentName   { get; set; }
         public DateTime QueuedAt   { get; set; } = DateTime.UtcNow;
         public DateTime? AcceptedAt { get; set; }
         public DateTime? ResolvedAt { get; set; }
@@ -28,7 +29,6 @@ namespace Furdeco_ChatBot.Models
         public string? ChatType { get; set; }
 
         // Navigation
-        public AgentUser?               Agent    { get; set; }
         public ICollection<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
         public Ticket?                  Ticket   { get; set; }
     }

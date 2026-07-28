@@ -36,16 +36,11 @@ builder.Services.AddDbContext<AppDbContext>(opts =>
     opts.UseNpgsql(builder.Configuration.GetConnectionString("LiveChat")));
 
 // Live chat services
-builder.Services.AddScoped<AgentUserService>();
 builder.Services.AddScoped<ChatSessionService>();
 builder.Services.AddScoped<TicketService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<CannedReplyService>();
 builder.Services.AddScoped<SettingsService>();
-
-// Auto-assign (round-robin) engine — shared state + background loop
-builder.Services.AddSingleton<AutoAssignTracker>();
-builder.Services.AddHostedService<AutoAssignHostedService>();
 
 // SLA breach monitor
 builder.Services.AddHostedService<SlaMonitorHostedService>();
@@ -70,18 +65,37 @@ var jwtKey     = jwtSection["Key"]      ?? throw new InvalidOperationException("
 var jwtIssuer  = jwtSection["Issuer"]   ?? "FurdecoLiveChat";
 var jwtAudience = jwtSection["Audience"] ?? "FurdecoAgents";
 
+// Additionally trust WALMS-issued tokens so WALMS-APP users can reach the chat
+// API without a separate login. These come from the WALMS backend's JWT config;
+// if WalmsKey is blank, only the chatbot's own tokens are accepted (unchanged).
+var walmsKey      = jwtSection["WalmsKey"];
+var walmsIssuer   = jwtSection["WalmsIssuer"];
+var walmsAudience = jwtSection["WalmsAudience"];
+var hasWalms      = !string.IsNullOrWhiteSpace(walmsKey);
+
+var validIssuers   = new List<string> { jwtIssuer };
+var validAudiences = new List<string> { jwtAudience };
+var signingKeys    = new List<SecurityKey> { new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)) };
+if (hasWalms)
+{
+    signingKeys.Add(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(walmsKey!)));
+    if (!string.IsNullOrWhiteSpace(walmsIssuer))   validIssuers.Add(walmsIssuer!);
+    if (!string.IsNullOrWhiteSpace(walmsAudience)) validAudiences.Add(walmsAudience!);
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts =>
     {
         opts.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer           = true,
-            ValidateAudience         = true,
+            // If WALMS tokens carry no audience claim, set Jwt:ValidateAudience=false in config.
+            ValidateAudience         = jwtSection.GetValue("ValidateAudience", true),
             ValidateLifetime         = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer              = jwtIssuer,
-            ValidAudience            = jwtAudience,
-            IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+            ValidIssuers             = validIssuers,
+            ValidAudiences           = validAudiences,
+            IssuerSigningKeys        = signingKeys
         };
         // Allow JWT via query string for SignalR connections
         opts.Events = new JwtBearerEvents
@@ -131,11 +145,12 @@ builder.Host.UseSerilog();
 var app = builder.Build();
 
 // ── Run EF Core migrations on startup ────────────────────────────────────
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
-}
+// Chat schema is owned/migrated by WALMS (central Pushpak-Prod3 DB) — do not auto-migrate here.
+//using (var scope = app.Services.CreateScope())
+//{
+//    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+//    db.Database.Migrate();
+//}
 // ─────────────────────────────────────────────────────────────────────────
 
 // Optional: global exception logging
