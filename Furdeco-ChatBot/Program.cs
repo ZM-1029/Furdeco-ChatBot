@@ -51,8 +51,30 @@ var azureSignalRConn = builder.Configuration["Azure:SignalR:ConnectionString"];
 var signalRBuilder = builder.Services.AddSignalR();
 if (!string.IsNullOrWhiteSpace(azureSignalRConn))
 {
-    signalRBuilder.AddAzureSignalR(azureSignalRConn);
-    Console.WriteLine("[SignalR] Using Azure SignalR Service.");
+    // Namespace the hub per environment. A single Azure SignalR resource shared
+    // across environments otherwise pools ALL app servers (dev + prod) under the
+    // same hub, so client connections and hub calls get routed to the wrong
+    // environment's server. ApplicationName is used as a hub-name prefix,
+    // isolating them. This chatbot and the WALMS API in the SAME environment MUST
+    // use the SAME value so the customer and agent still share groups.
+    // Absent/empty => unchanged behaviour (no prefix).
+    var signalRAppName = builder.Configuration["Azure:SignalR:ApplicationName"];
+    signalRBuilder.AddAzureSignalR(options =>
+    {
+        options.ConnectionString = azureSignalRConn;
+        if (!string.IsNullOrWhiteSpace(signalRAppName))
+            options.ApplicationName = signalRAppName;
+        // CRITICAL: this chatbot and WALMS deliberately share the hub (same
+        // resource + ApplicationName + hub name) so customer and agent share
+        // groups. Azure SignalR load-balances each CLIENT across ALL app servers
+        // on the hub — without stickiness a CUSTOMER's calls (JoinQueue/
+        // SendMessage/...) can be routed to the WALMS server, and an agent's to
+        // this one, hitting a hub that lacks those methods → silent failures.
+        // Required = every client's invocations go to the app server that served
+        // its negotiate. Group broadcasts still reach both apps' clients.
+        options.ServerStickyMode = Microsoft.Azure.SignalR.ServerStickyMode.Required;
+    });
+    Console.WriteLine($"[SignalR] Using Azure SignalR Service. ApplicationName='{signalRAppName}'.");
 }
 else
 {

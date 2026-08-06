@@ -39,7 +39,7 @@
           DEMO_MODE: false,
           API_TIMEOUT_MS: 15000,
                   SUPPORT_PHONE: '+44 (0) 121 285 5255',  /* Update to your correct contact number */
-          SUPPORT_EMAIL: 'info@furdeco.co.uk',
+          SUPPORT_EMAIL: 'delivery@furdeco.co.uk',
           SUPPORT_HOURS: 'Mon–Sat, 8am–8pm',
           /* Furdeco brand colours — align with furdeco_brand_guidelines_v1-2_2023_draft.pdf */
           BRAND_PRIMARY: '#3AB54A',
@@ -855,6 +855,17 @@
           // If OTP verification was exhausted, identity is unverified — do not
           // connect to a live agent (covers both the button and typed "agent"/"human").
           if(otpLocked){await botMsg("For your security we're unable to connect you to an agent until your identity is verified. Please use our contact details below.");showContactDetails();return;}
+          // Availability window (UK time): when live chat is offline, show the
+          // hours + contact details and stop before the pre-chat flow. Fail-open —
+          // if the check itself fails, proceed as normal (server re-checks anyway).
+          try{
+            const av=await(await fetch('/api/livechat/availability')).json();
+            if(av&&av.closed){
+              await botMsg(`🕒 Live chat is currently <strong>offline</strong>.<br>Our agents are available between <strong>${xe(av.start)} – ${xe(av.end)} (UK time)</strong>.<br>Please reach us using the contact details below.`);
+              showContactDetails();
+              return;
+            }
+          }catch(e){}
           state='done';
           // Always connect the customer to a live agent when they ask for a human.
           await startLiveChatFlow();
@@ -1056,6 +1067,19 @@
           }catch(e){return '';}
         }
 
+        // ── Queue heartbeat: ping every 30s while WAITING so the server can tell
+        // a live waiter from a closed tab (abandonment sweep marks silent queued
+        // sessions Abandoned after 2 min). Self-stops once no longer queued.
+        function _lcStartHb(){
+          _lcStopHb();
+          lc._hb=setInterval(function(){
+            if(lc.status==='queued'&&lc.connection&&lc.sessionId){
+              lc.connection.invoke('QueueHeartbeat',lc.sessionId).catch(function(){});
+            }else{_lcStopHb();}
+          },30000);
+        }
+        function _lcStopHb(){if(lc._hb){clearInterval(lc._hb);lc._hb=null;}}
+
         async function lcConnect(customerName,issueDescription){
           lc._closed=false;
           const ldr=ldrMsg('Connecting to an agent…');
@@ -1085,9 +1109,21 @@
 
             await conn.start();
             const result=await conn.invoke('JoinQueue',pRef||'',pPc||'',customerName,issueDescription,_lcOrderSnapshot());
+            // Server-side availability guard (defense in depth — the pre-chat
+            // check can be raced by the window closing while typing).
+            if(result&&result.closed){
+              ldr.remove();
+              try{await conn.stop();}catch(e){}
+              lc.connection=null;lc.status=null;
+              await botMsg(`🕒 Live chat is currently <strong>offline</strong>.<br>Our agents are available between <strong>${xe(result.start)} – ${xe(result.end)} (UK time)</strong>.<br>Please reach us using the contact details below.`);
+              showContactDetails();
+              state='post_action';
+              return;
+            }
             lc.sessionId=result.sessionId;
             lc.status='queued';
             localStorage.setItem(LC_KEY,String(lc.sessionId));
+            _lcStartHb();   // waiting: heartbeat until an agent joins / we leave
 
             ldr.remove();
             showQueueScreen(result.position||1);
@@ -1115,6 +1151,7 @@
         }
 
         window._lcLeaveQueue=async function(){
+          _lcStopHb();
           if(lc.connection&&lc.sessionId)try{await lc.connection.invoke('LeaveQueue',lc.sessionId);}catch(e){}
           lc.status=null;lc.sessionId=null;localStorage.removeItem(LC_KEY);
           document.querySelectorAll('#lc-queue-screen').forEach(n=>{const r=n.closest('.tt-row');(r||n).remove();});
@@ -1205,8 +1242,12 @@
           try{await lc.connection.invoke('SendMessage',lc.sessionId,val);}catch(e){console.error('[LC] send failed',e);}
         };
 
+        // Confirmation step: a single accidental tap on the small red "End Chat"
+        // button used to end the chat instantly — customers then (honestly)
+        // denied ending it. Now they must confirm.
         window._lcEnd=async function(){
           if(!lc.sessionId||lc._closed)return;
+          if(!window.confirm('End this chat with the agent?'))return;
           const wasActive=lc.connection&&lc.status==='active';
           lc.status='ended';
           // Show the customer-ended message FIRST so it sets the lc._closed guard
@@ -1332,6 +1373,7 @@
 
           await conn.start();
           await conn.invoke('RejoinSession',savedId);
+          if(lc.status==='queued')_lcStartHb();   // resumed while still waiting
 
           // Replay message history
           if(data.messages?.length){

@@ -12,7 +12,7 @@ namespace Furdeco_ChatBot.Service
 
         // ── Queue ────────────────────────────────────────────────────
 
-        public async Task<ChatSession> CreateAndQueueAsync(string reference, string customerName, string issueDescription, string? orderSnapshot = null)
+        public async Task<ChatSession> CreateAndQueueAsync(string reference, string customerName, string issueDescription, string? orderSnapshot = null, string? postcode = null)
         {
             var session = new ChatSession
             {
@@ -20,8 +20,12 @@ namespace Furdeco_ChatBot.Service
                 CustomerName     = customerName,
                 IssueDescription = issueDescription,
                 OrderSnapshot    = string.IsNullOrWhiteSpace(orderSnapshot) ? null : orderSnapshot,
+                // Persisted even when the order lookup failed, for admin follow-up
+                // on abandoned requests (previously this was dropped).
+                Postcode         = string.IsNullOrWhiteSpace(postcode) ? null : postcode.Trim().ToUpperInvariant(),
                 Status           = "Queued",
-                QueuedAt         = DateTime.UtcNow
+                QueuedAt         = DateTime.UtcNow,
+                LastSeenAt       = DateTime.UtcNow
             };
             _db.ChatSessions.Add(session);
 
@@ -142,6 +146,18 @@ namespace Furdeco_ChatBot.Service
             session.ResolvedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
             return session;
+        }
+
+        /// <summary>Queue heartbeat: the widget pings every ~30s while the
+        /// customer is WAITING. The WALMS abandonment sweep uses LastSeenAt to
+        /// tell a live waiter from a closed tab (2-min grace). Only meaningful
+        /// while the session is still Queued.</summary>
+        public async Task HeartbeatAsync(Guid sessionId)
+        {
+            var session = await _db.ChatSessions.FindAsync(sessionId);
+            if (session == null || session.Status != "Queued") return;
+            session.LastSeenAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
         }
 
         public async Task<ChatSession?> TransferAsync(Guid sessionId, int newAgentId, string newAgentName)

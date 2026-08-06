@@ -18,7 +18,13 @@ namespace Furdeco_ChatBot.Service
             {
                 SessionId       = session.Id,
                 Subject         = $"Chat re {session.Reference} — {session.CustomerName}",
-                Status          = "Open",
+                // Born RESOLVED, matching WALMS's ticket factory: this only runs when
+                // the customer ends the chat, so the conversation is already finished
+                // — the ticket is the record of it. Born "Open" it sat unworked and
+                // flagged a phantom SLA breach 4h later. Admins can still reopen it.
+                Status          = "Resolved",
+                // Who ended the chat — this factory only fires on customer-side end.
+                Tags            = new[] { "Closed by customer" },
                 Priority        = "Medium",
                 AssignedAgentId = session.AgentId,
                 AssignedAgentName = session.AgentName,

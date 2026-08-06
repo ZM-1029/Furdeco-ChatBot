@@ -7,6 +7,11 @@ namespace Furdeco_ChatBot.Models
         public string CustomerName { get; set; } = null!;
         public string IssueDescription { get; set; } = string.Empty;
 
+        /// <summary>Delivery postcode as TYPED by the customer at chat start —
+        /// persisted even when the order lookup failed, so admins can reach out
+        /// to customers who abandoned the queue (WALMS Chat Requests screen).</summary>
+        public string? Postcode    { get; set; }
+
         /// <summary>"Queued" | "Active" | "Resolved" | "Abandoned" | "Transferred"</summary>
         public string Status       { get; set; } = "Queued";
 
@@ -15,6 +20,11 @@ namespace Furdeco_ChatBot.Models
         public DateTime QueuedAt   { get; set; } = DateTime.UtcNow;
         public DateTime? AcceptedAt { get; set; }
         public DateTime? ResolvedAt { get; set; }
+
+        /// <summary>Last queue heartbeat from the widget while WAITING — the
+        /// WALMS abandonment sweep uses this to tell a live waiter from a closed
+        /// tab (2-min grace). Explicit "Leave Queue" abandons directly.</summary>
+        public DateTime? LastSeenAt { get; set; }
         public string? AgentNotes  { get; set; }
         public int?   CustomerRating { get; set; }   // 1-5 stars
         public bool   IsSupervised { get; set; }     // admin barged in

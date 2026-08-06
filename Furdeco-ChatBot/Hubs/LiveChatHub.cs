@@ -20,13 +20,15 @@ namespace Furdeco_ChatBot.Hubs
         private readonly ChatSessionService  _sessions;
         private readonly TicketService       _tickets;
         private readonly NotificationService _notifs;
+        private readonly SettingsService     _settings;
 
         public LiveChatHub(ChatSessionService sessions,
-            TicketService tickets, NotificationService notifs)
+            TicketService tickets, NotificationService notifs, SettingsService settings)
         {
             _sessions = sessions;
             _tickets  = tickets;
             _notifs   = notifs;
+            _settings = settings;
         }
 
         // ── CUSTOMER METHODS ─────────────────────────────────────────
@@ -38,7 +40,14 @@ namespace Furdeco_ChatBot.Hubs
         public async Task<object> JoinQueue(string reference, string postcode,
             string customerName, string issueDescription, string? orderSnapshot = null)
         {
-            var session = await _sessions.CreateAndQueueAsync(reference, customerName, issueDescription, orderSnapshot);
+            // Availability window (UK time) — when enabled and currently outside
+            // it, refuse to queue: the widget shows the hours + contact details.
+            // Fail-open by design (disabled/bad config = always open).
+            var ws = await _settings.GetAsync();
+            if (!Models.LiveChatHours.IsOpenNow(ws))
+                return new { closed = true, start = ws.LiveChatStartTime, end = ws.LiveChatEndTime };
+
+            var session = await _sessions.CreateAndQueueAsync(reference, customerName, issueDescription, orderSnapshot, postcode);
             var position = await _sessions.GetQueuePositionAsync(session.Id);
 
             await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{session.Id}");
@@ -78,6 +87,11 @@ namespace Furdeco_ChatBot.Hubs
         public async Task CustomerStoppedTyping(Guid sessionId)
             => await Clients.OthersInGroup($"session:{sessionId}").SendAsync("CustomerStoppedTyping");
 
+        /// <summary>Queue heartbeat — the widget pings every ~30s while the
+        /// customer is WAITING so the abandonment sweep (WALMS side) can tell a
+        /// live waiter from a closed tab (explicit leave uses LeaveQueue).</summary>
+        public Task QueueHeartbeat(Guid sessionId) => _sessions.HeartbeatAsync(sessionId);
+
         /// <summary>Customer leaves the queue before being picked up.</summary>
         public async Task LeaveQueue(Guid sessionId)
         {
@@ -95,7 +109,10 @@ namespace Furdeco_ChatBot.Hubs
             var session = await _sessions.ResolveAsync(sessionId, null);
             if (session == null) return;
 
-            await Clients.Group($"session:{sessionId}").SendAsync("ChatEnded");
+            // Args: session id + WHO ended it — lets the agent console label the
+            // banner truthfully ("customer ended" only when the customer really
+            // did). Old clients simply ignore the extra args.
+            await Clients.Group($"session:{sessionId}").SendAsync("ChatEnded", sessionId, "customer");
 
             if (session.AgentId.HasValue)
             {

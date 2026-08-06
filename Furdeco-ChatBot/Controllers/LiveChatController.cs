@@ -9,8 +9,25 @@ namespace Furdeco_ChatBot.Controllers
     public class LiveChatController : ControllerBase
     {
         private readonly ChatSessionService _sessions;
+        private readonly SettingsService _settings;
 
-        public LiveChatController(ChatSessionService sessions) => _sessions = sessions;
+        public LiveChatController(ChatSessionService sessions, SettingsService settings)
+        {
+            _sessions = sessions;
+            _settings = settings;
+        }
+
+        // GET /api/livechat/availability — anonymous; the customer widget checks
+        // this BEFORE the pre-chat flow. When the (UK-time) availability window is
+        // enabled and we're outside it, the widget shows the hours + Furdeco
+        // contact details instead of collecting name/issue. Fail-open by design.
+        [HttpGet("availability")]
+        public async Task<IActionResult> Availability()
+        {
+            var s = await _settings.GetAsync();
+            var open = Models.LiveChatHours.IsOpenNow(s);
+            return Ok(new { closed = !open, start = s.LiveChatStartTime, end = s.LiveChatEndTime });
+        }
 
         // GET /api/livechat/sessions/{id}  — used by chatbot session restore check
         [HttpGet("sessions/{id:guid}")]
