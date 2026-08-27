@@ -26,7 +26,9 @@ namespace Furdeco_ChatBot.Controllers
         {
             var s = await _settings.GetAsync();
             var open = Models.LiveChatHours.IsOpenNow(s);
-            return Ok(new { closed = !open, start = s.LiveChatStartTime, end = s.LiveChatEndTime });
+            // Quote the window that applies TODAY (Sunday can have its own hours).
+            var (openFrom, openTo) = Models.LiveChatHours.EffectiveWindow(s);
+            return Ok(new { closed = !open, start = openFrom, end = openTo });
         }
 
         // GET /api/livechat/sessions/{id}  — used by chatbot session restore check

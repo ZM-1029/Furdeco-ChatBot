@@ -106,10 +106,13 @@ namespace Furdeco_ChatBot.Service
         private async Task SendEmailAsync(string toEmail, byte[] excelBytes,
             string dateLabel, int logCount)
         {
-            var smtp     = _config["EmailSettings:SmtpServer"] ?? "smtppro.zoho.in";
+            var smtp     = _config["EmailSettings:SmtpServer"] ?? "smtp.zeptomail.in";
             var port     = int.Parse(_config["EmailSettings:Port"] ?? "587");
             var username = _config["EmailSettings:Username"] ?? "";
             var password = _config["EmailSettings:Password"] ?? "";
+            // Sender is its own setting - see the note in ChatController: the
+            // ZeptoMail username is "emailapikey", not an address.
+            var fromEmail = _config["EmailSettings:FromEmail"] ?? username;
 
             using var client = new SmtpClient(smtp, port)
             {
@@ -121,7 +124,7 @@ namespace Furdeco_ChatBot.Service
 
             var mail = new MailMessage
             {
-                From       = new MailAddress(username, "Ask Frankie by Furdeco"),
+                From       = new MailAddress(fromEmail, "Ask Frankie by Furdeco"),
                 Subject    = $"[Furdeco ChatBot] Daily Activity Report — {dateLabel}",
                 IsBodyHtml = true,
                 Body       = BuildEmailBody(dateLabel, logCount)

@@ -45,7 +45,11 @@ namespace Furdeco_ChatBot.Hubs
             // Fail-open by design (disabled/bad config = always open).
             var ws = await _settings.GetAsync();
             if (!Models.LiveChatHours.IsOpenNow(ws))
-                return new { closed = true, start = ws.LiveChatStartTime, end = ws.LiveChatEndTime };
+            {
+                // Quote the window that applies TODAY (Sunday can have its own hours).
+                var (openFrom, openTo) = Models.LiveChatHours.EffectiveWindow(ws);
+                return new { closed = true, start = openFrom, end = openTo };
+            }
 
             var session = await _sessions.CreateAndQueueAsync(reference, customerName, issueDescription, orderSnapshot, postcode);
             var position = await _sessions.GetQueuePositionAsync(session.Id);

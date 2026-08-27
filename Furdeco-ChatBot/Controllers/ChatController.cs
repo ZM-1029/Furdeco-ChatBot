@@ -238,10 +238,14 @@ public class ChatController : ControllerBase
     }
     private async Task SendOtpEmail(string toEmail, string otp)
     {
-        var smtp = _config["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
+        var smtp = _config["EmailSettings:SmtpServer"] ?? "smtp.zeptomail.in";
         var port = int.Parse(_config["EmailSettings:Port"] ?? "587");
         var username = _config["EmailSettings:Username"] ?? "";
         var password = _config["EmailSettings:Password"] ?? "";
+        // The sender is its own setting. It used to be the SMTP username, which
+        // held while that was an address - on ZeptoMail the username is the
+        // literal "emailapikey" and MailAddress would throw on it.
+        var fromEmail = _config["EmailSettings:FromEmail"] ?? username;
 
         using var client = new SmtpClient(smtp, port)
         {
@@ -251,7 +255,7 @@ public class ChatController : ControllerBase
 
         var mail = new MailMessage
         {
-            From = new MailAddress(username, "Ask Frankie by Furdeco"),
+            From = new MailAddress(fromEmail, "Ask Frankie by Furdeco"),
             Subject = "Your Ask Frankie Verification Code",
             IsBodyHtml = true,
             Body = $@"
