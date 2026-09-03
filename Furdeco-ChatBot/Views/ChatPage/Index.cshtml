@@ -611,7 +611,7 @@
             showOtpInput();
           }catch(e){
             ldr.remove();await botMsg("❌ Couldn't send the code. Please try again.");
-            qrs([{label:'🔄 Try Again',fn:()=>{userMsg('Try again');state='otp_email';botMsg("Enter your <strong>email address</strong>:");}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],400);
+            qrs([{label:'🔄 Try Again',fn:()=>{userMsg('Try again');state='otp_email';botMsg("Enter your <strong>email address</strong>:");}},humanOrContactQR()],400);
           }
         }
 
@@ -638,7 +638,7 @@
             showOtpInput();
           }catch(e){
             ldr.remove();await botMsg("❌ Couldn't send the code. Please try again.");
-            qrs([{label:'🔄 Try Again',fn:()=>{userMsg('Try again');state='otp_phone';botMsg("Enter your <strong>mobile number</strong> again:");}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],400);
+            qrs([{label:'🔄 Try Again',fn:()=>{userMsg('Try again');state='otp_phone';botMsg("Enter your <strong>mobile number</strong> again:");}},humanOrContactQR()],400);
           }
         }
 
@@ -848,13 +848,40 @@
             ?'No matching consignment found. You recently received an email from Furdeco with regards to your order — you will find your consignment number on this email.'
             :e.code==='NOT_FOUND'?e.message:e.code==='TIMEOUT'?'The request took too long. Please try again.':e.code==='HTTP'?'Connection issue. Please try again.':'Something went wrong. Please try again.';
           const el=document.createElement('div');el.className='tt-row b';el.innerHTML=`<div class="tt-bbl" style="max-width:96%;padding:0;background:transparent"><div class="tt-err">❌ ${msg}</div></div>`;
-          await addEl(el,0);qrs([{label:'🔄 Try Again',fn:()=>{dQR();userMsg('Try again');resetLookup();}},{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}],350);
+          // A lookup that found nothing is, by definition, unverified — so the
+          // second button is our contact details, not an agent. After the order
+          // is verified (an action error) it stays "Talk to a Human" as before.
+          await addEl(el,0);qrs([{label:'🔄 Try Again',fn:()=>{dQR();userMsg('Try again');resetLookup();}},humanOrContactQR()],350);
+        }
+
+        // The "Talk to a Human" quick reply — but only once the order is verified.
+        // Before that the same slot offers our contact details instead, so the
+        // option is never put in front of someone we haven't identified.
+        function humanOrContactQR(){
+          return otpVerified
+            ? {label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}
+            : {label:'📞 Contact Us',fn:()=>{dQR();userMsg('Contact details');showContactDetails();}};
         }
 
         async function humanHandoff(){
           // If OTP verification was exhausted, identity is unverified — do not
           // connect to a live agent (covers both the button and typed "agent"/"human").
           if(otpLocked){await botMsg("For your security we're unable to connect you to an agent until your identity is verified. Please use our contact details below.");showContactDetails();return;}
+          // An agent is for a REAL, verified order: one we found from the
+          // reference + postcode, whose owner then confirmed the 6-digit code.
+          // otpVerified was set at the end of that flow but never actually read,
+          // so a made-up consignment number — or a lookup that found nothing at
+          // all — still reached the queue. This is the backstop that closes it,
+          // and it covers every route in: the buttons, and typing "agent" or
+          // "human" at any point in the conversation.
+          if(!otpVerified){
+            await botMsg("🔒 To protect your delivery details, I can only connect you to an agent once your order has been verified.<br><br>Please enter your <strong>consignment or order number</strong> and <strong>delivery postcode</strong>, then confirm the 6-digit code we send you.");
+            await qrs([
+              {label:'🔍 Verify My Order',fn:()=>{dQR();userMsg('Verify my order');resetLookup();}},
+              {label:'📞 Contact Us',fn:()=>{dQR();userMsg('Contact details');showContactDetails();}}
+            ],350);
+            return;
+          }
           // Availability window (UK time): when live chat is offline, show the
           // hours + contact details and stop before the pre-chat flow. Fail-open —
           // if the check itself fails, proceed as normal (server re-checks anyway).
@@ -867,7 +894,7 @@
             }
           }catch(e){}
           state='done';
-          // Always connect the customer to a live agent when they ask for a human.
+          // Verified, in hours — connect the customer to a live agent.
           await startLiveChatFlow();
         }
 
