@@ -732,7 +732,7 @@
             await showOrder();
           }catch(e){
             ldr.remove();otpAttempts++;state='otp_verify';
-            if(otpAttempts>=3){otpLocked=true;await botMsg("❌ Too many attempts. For your security we can't verify your identity right now. Please use our contact details, or start over to try again.");qrs([{label:'📞 Contact Us',fn:()=>{dQR();userMsg('Contact details');showContactDetails();}},{label:'🔄 Start Over',fn:()=>{userMsg('Start over');resetLookup();}}],400);return;}
+            if(otpAttempts>=3){otpLocked=true;await botMsg("❌ Too many attempts. We can't verify your identity automatically right now — you can talk to one of our team, or start over to try again.");qrs([{label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}},{label:'🔄 Start Over',fn:()=>{userMsg('Start over');resetLookup();}},{label:'📞 Contact Us',fn:()=>{dQR();userMsg('Contact details');showContactDetails();}}],400);return;}
             const digits=[...Array(6)].map((_,i)=>document.getElementById(`otp-d${i}`));
             digits.forEach(d=>{d.classList.add('error');setTimeout(()=>d.classList.remove('error'),500);});
             digits.forEach(d=>{d.disabled=false;d.value='';d.classList.remove('filled');});
@@ -863,19 +863,17 @@
           await addEl(el,0);qrs([{label:'🔄 Try Again',fn:()=>{dQR();userMsg('Try again');resetLookup();}},humanOrContactQR()],350);
         }
 
-        // The "Talk to a Human" quick reply — but only once the order is verified.
-        // Before that the same slot offers our contact details instead, so the
-        // option is never put in front of someone we haven't identified.
+        // The "Talk to a Human" quick reply. Offered once the order is verified,
+        // and to the two customers who CANNOT verify however willing they are:
+        // the lookup found no order, or the OTP attempts ran out. Anyone who has
+        // simply not finished verifying still gets our contact details.
         function humanOrContactQR(){
-          return (otpVerified||lookupNotFound)
+          return (otpVerified||lookupNotFound||otpLocked)
             ? {label:'👤 Talk to a Human',fn:()=>{dQR();userMsg('Talk to a human');humanHandoff();}}
             : {label:'📞 Contact Us',fn:()=>{dQR();userMsg('Contact details');showContactDetails();}};
         }
 
         async function humanHandoff(){
-          // If OTP verification was exhausted, identity is unverified — do not
-          // connect to a live agent (covers both the button and typed "agent"/"human").
-          if(otpLocked){await botMsg("For your security we're unable to connect you to an agent until your identity is verified. Please use our contact details below.");showContactDetails();return;}
           // An agent is for a REAL, verified order: one we found from the
           // reference + postcode, whose owner then confirmed the 6-digit code.
           // otpVerified was set at the end of that flow but never actually read,
@@ -883,9 +881,15 @@
           // all — still reached the queue. This is the backstop that closes it,
           // and it covers every route in: the buttons, and typing "agent" or
           // "human" at any point in the conversation.
-          // ...or whose lookup found no order at all: there is nothing to
-          // verify against, so requiring verification would be a dead end.
-          if(!otpVerified&&!lookupNotFound){
+          // TWO EXCEPTIONS, both people who cannot verify no matter how
+          // willing they are, so refusing them is a dead end rather than a
+          // check:
+          //   lookupNotFound - no order was found, so there is nothing to send
+          //                    a code against;
+          //   otpLocked      - the order WAS found from reference + postcode,
+          //                    but the code attempts ran out.
+          // Anyone who has simply not finished verifying is still asked to.
+          if(!otpVerified&&!lookupNotFound&&!otpLocked){
             await botMsg("🔒 To protect your delivery details, I can only connect you to an agent once your order has been verified.<br><br>Please enter your <strong>consignment or order number</strong> and <strong>delivery postcode</strong>, then confirm the 6-digit code we send you.");
             await qrs([
               {label:'🔍 Verify My Order',fn:()=>{dQR();userMsg('Verify my order');resetLookup();}},
